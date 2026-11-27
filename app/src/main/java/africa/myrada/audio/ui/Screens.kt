@@ -317,7 +317,6 @@ fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () ->
     }
 }
 
-@Composable
 /** Effects Rada has not built yet; shown so nothing pretends to work. */
 private val NOT_BUILT = setOf("HRTF spatial", "Convolution")
 

@@ -173,9 +173,10 @@ class MainActivity : ComponentActivity() {
             // Phone < 600dp · foldable inner screen 600–999dp · tablet 1000dp+
             val columns = when { maxWidth < 600.dp -> 1; maxWidth < 1000.dp -> 2; else -> 3 }
             val sideNav = columns == 3
+            val narrow = maxWidth < 380.dp
 
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                TopBar(status.running, wide = columns > 1, compact = maxWidth < 380.dp, onInfo = { sheet = SheetKind.Engine }) { on ->
+                TopBar(status.running, wide = columns > 1, compact = narrow, onInfo = { sheet = SheetKind.Engine }) { on ->
                     if (on) EngineService.start(this@MainActivity) else EngineService.stop(this@MainActivity)
                 }
                 Row(Modifier.weight(1f)) {
