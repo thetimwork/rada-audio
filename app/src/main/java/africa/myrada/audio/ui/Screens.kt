@@ -1,30 +1,21 @@
 package africa.myrada.audio.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -32,278 +23,294 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import africa.myrada.audio.engine.OutputInfo
 import africa.myrada.audio.engine.Presets
 import africa.myrada.audio.engine.RadaEngine
 import africa.myrada.audio.engine.Settings
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
-// ---------- building blocks ----------------------------------------------------------------
+/** A panel in the adaptive grid. full = spans every column. */
+class Cell(val full: Boolean = false, val content: @Composable () -> Unit)
+
+/**
+ * Phone: one column. Foldable: two columns meeting at the hinge. Tablet: three columns.
+ * Full-width cells break the flow; the others are dealt across the columns in order.
+ */
+@Composable
+fun AdaptiveGrid(columns: Int, cells: List<Cell>, gap: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        var block = mutableListOf<Cell>()
+        val blocks = mutableListOf<List<Cell>>()
+        cells.forEach { c ->
+            if (c.full) { if (block.isNotEmpty()) blocks.add(block); blocks.add(listOf(c)); block = mutableListOf() } else block.add(c)
+        }
+        if (block.isNotEmpty()) blocks.add(block)
+        blocks.forEach { b ->
+            if (b.size == 1 && b[0].full || columns == 1) {
+                b.forEach { it.content() }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
+                    for (col in 0 until columns) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            b.filterIndexed { i, _ -> i % columns == col }.forEach { it.content() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
-fun Panel(title: String? = null, content: @Composable () -> Unit) {
+fun Page(columns: Int, eyebrow: String, title: String, cells: List<Cell>) {
+    val gap = if (columns == 2) 48 else 14 // foldable: keep the gap over the hinge
     Column(
         Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF302C28), Color(0xFF191817))))
-            .border(1.dp, RadaColors.Line, RoundedCornerShape(22.dp))
-            .padding(18.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = if (columns == 1) 16.dp else 24.dp, vertical = 18.dp)
     ) {
-        if (title != null) {
-            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = RadaColors.Text)
-            Spacer(Modifier.height(10.dp))
-        }
-        content()
+        Heading(eyebrow, title)
+        AdaptiveGrid(columns, cells, gap)
+        Spacer(Modifier.height(24.dp))
     }
 }
 
-@Composable
-fun Heading(eyebrow: String, title: String) {
-    Column(Modifier.padding(bottom = 6.dp)) {
-        Text(eyebrow.uppercase(), color = RadaColors.Copper, fontSize = 11.sp, letterSpacing = 2.sp)
-        Text(title, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = RadaColors.Text)
-    }
+fun artKind(o: OutputInfo): String = when {
+    o.mode == "Phone speaker" -> "spk"
+    o.mode == "USB Hi-Fi" -> "dac"
+    Regex("bud|wf-|pods|ear", RegexOption.IGNORE_CASE).containsMatchIn(o.name) -> "bud"
+    else -> "head"
 }
 
-@Composable
-fun Note(text: String, color: Color = RadaColors.Muted) {
-    Text(text, color = color, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 6.dp))
-}
+private val heroBrush = Brush.radialGradient(listOf(Color(0xFF3A2E26), Color(0xFF221F1D), Color(0xFF161514)))
+private fun db(v: Float) = (if (v > 0) "+" else "") + (if (v % 1f == 0f) v.roundToInt().toString() else "%.1f".format(v)) + " dB"
+
+// ---------------------------------------------------------------------------------------------
 
 @Composable
-fun Tag(text: String, color: Color = RadaColors.Copper) {
-    Text(
-        text, color = color, fontSize = 11.sp,
-        modifier = Modifier
-            .border(1.dp, Color(0xFF856143), RoundedCornerShape(50))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    )
-}
-
-@Composable
-fun ToggleRow(title: String, subtitle: String, checked: Boolean, enabled: Boolean = true, tag: String? = null, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
+fun HomeScreen(columns: Int, s: Settings, st: RadaEngine.Status, onEngine: (String) -> Unit, onApps: () -> Unit, openEq: () -> Unit) {
+    val hero = Cell {
+        Panel(brush = heroBrush) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, fontWeight = FontWeight.SemiBold, color = RadaColors.Text)
-                if (tag != null) { Spacer(Modifier.width(8.dp)); Tag(tag, RadaColors.Amber) }
+                Tag(st.output.mode); Spacer(Modifier.weight(1f))
+                Text(if (st.output.bluetooth) "Bluetooth · profile loaded" else "Profile loaded", color = RadaColors.Muted, fontSize = 11.sp)
             }
-            Text(subtitle, color = RadaColors.Muted, fontSize = 12.sp)
+            DeviceArt(artKind(st.output), Modifier.padding(top = 4.dp))
+            Text(st.output.name, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = RadaColors.Text,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Metric(if (st.advanced) "Advanced" else "Standard", "Engine", Modifier.weight(1f))
+                Metric(when (st.reach) { RadaEngine.Reach.SYSTEM_WIDE -> "All apps"; RadaEngine.Reach.PER_APP -> "Per app"; else -> "Off" }, "Reach", Modifier.weight(1f))
+                Metric("≈0 ms", "Added delay", Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(12.dp))
+            CompareButton(st.bypassed) { RadaEngine.setBypass(it) }
+            st.message?.let { Note(it, RadaColors.Amber) }
         }
-        Switch(
-            checked = checked, onCheckedChange = onChange, enabled = enabled,
-            colors = SwitchDefaults.colors(checkedTrackColor = RadaColors.Copper, checkedThumbColor = RadaColors.OnCopper),
-        )
+    }
+    val engine = Cell {
+        Panel(title = "Engine") {
+            Segmented(listOf("Standard", "Advanced"), if (st.advanced) "Advanced" else "Standard") { onEngine(it) }
+            Note(if (st.advanced) "Advanced is on. Each app gets the best engine it allows." else "Works on every phone. EQ, correction and dynamics through Android's own effect chain.")
+            if (st.advanced) GhostButton("See apps", Modifier.padding(top = 10.dp)) { onApps() }
+        }
+    }
+    val sig = Cell { Panel(title = "Sound signature") { Chips(Presets.names, s.preset) { n -> RadaEngine.update { Presets.apply(n, it) } } } }
+    val quick = Cell {
+        Panel(title = "Quick controls") {
+            DialRow {
+                Dial("Bass", s.bass) { v -> RadaEngine.update { it.copy(bass = v.roundToInt().toFloat(), preset = "Custom") } }
+                Dial("Clarity", s.clarity) { v -> RadaEngine.update { it.copy(clarity = v.roundToInt().toFloat(), preset = "Custom") } }
+                Dial("Width", s.width) { v -> RadaEngine.update { it.copy(width = v.roundToInt().toFloat()) } }
+            }
+            Note("Drag a dial up or down. Width is deliberately subtle in Standard mode.")
+        }
+    }
+    val eqPreview = Cell {
+        Panel(title = "Equaliser") {
+            EqCurve(List(10) { s.bandGain(it) })
+            Note("${s.preset} · preamp ${db(s.preamp)}")
+            GhostButton("Open equaliser", Modifier.padding(top = 10.dp)) { openEq() }
+        }
+    }
+    val cells = if (columns >= 3) listOf(hero, engine, quick, sig, eqPreview) else listOf(hero, engine, sig, quick)
+    Page(columns, "RADA Sense", "Your sound", cells)
+}
+
+@Composable
+fun EqScreen(columns: Int, s: Settings) {
+    val graphic = Cell(full = columns > 1) {
+        Panel(title = "Graphic EQ", trailing = { Tag("10 bands") }) {
+            EqCurve(List(10) { s.bandGain(it) })
+            Faders(s.bands, Settings.LABELS) { i, v ->
+                RadaEngine.update { cur -> cur.copy(bands = cur.bands.toMutableList().also { it[i] = v }, preset = "Custom") }
+            }
+            Spacer(Modifier.height(14.dp))
+            Chips(Presets.names, s.preset) { n -> RadaEngine.update { Presets.apply(n, it) } }
+        }
+    }
+    val tone = Cell {
+        Panel(title = "Tone and gain") {
+            SliderRow("Preamp", s.preamp, -18f..6f, db(s.preamp), 23) { v -> RadaEngine.update { it.copy(preamp = v.roundToInt().toFloat()) } }
+            SliderRow("Treble", s.treble, -12f..12f, db(s.treble), 23) { v -> RadaEngine.update { it.copy(treble = v.roundToInt().toFloat(), preset = "Custom") } }
+            val bal = s.balance.roundToInt()
+            SliderRow("Balance", s.balance, -100f..100f, if (bal == 0) "Centre" else (if (bal < 0) "L " else "R ") + abs(bal)) { v -> RadaEngine.update { it.copy(balance = v.roundToInt().toFloat()) } }
+            Note("Preamp lowers the level before boosts, so the limiter rarely has to work.")
+        }
+    }
+    val limits = Cell {
+        Panel(title = "Headroom") {
+            SettingRow("Peak limiter", "Stops clipping when the EQ adds gain", s.limiter, tag = "All apps", tagKind = TagKind.Normal) { RadaEngine.update { it.copy(limiter = !it.limiter) } }
+            GhostButton("Flatten EQ") { RadaEngine.update { Presets.apply("Reference", it) } }
+        }
+    }
+    Page(columns, "Precision", "Equaliser", listOf(graphic, tone, limits))
+}
+
+@Composable
+fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () -> Unit) {
+    val room = Cell {
+        Panel(title = "Room", trailing = { Tag(if (st.reverbApps > 0) "${st.reverbApps} app" + (if (st.reverbApps > 1) "s" else "") else "Some apps", TagKind.Limit) },
+            brush = Brush.radialGradient(listOf(Color(0xFF4A3A2F), Color(0xFF211E1C), Color(0xFF141312)))) {
+            RoomScene(s.roomSize, s.reverb && st.running)
+            Chips(Presets.rooms, s.room) { r -> RadaEngine.update { it.copy(room = r) } }
+            SliderRow("Room size", s.roomSize, 0f..100f, "${s.roomSize.roundToInt()}%") { v -> RadaEngine.update { it.copy(roomSize = v.roundToInt().toFloat()) } }
+            Note("Reverb reaches apps that announce their audio, such as Spotify. Play something there and it lights up.")
+        }
+    }
+    val std = Cell {
+        Panel {
+            SettingRow("Room reverb", "Adds a room around the music", s.reverb, tag = "Some apps") { RadaEngine.update { it.copy(reverb = !it.reverb) } }
+            SettingRow("Virtual surround", when (st.virtualizerAccepted) { true -> "Accepted by this phone"; false -> "This phone ignored it"; null -> "Android's binaural virtualiser, opt-in" },
+                s.virtualizer, tag = "Varies by phone") { RadaEngine.update { it.copy(virtualizer = !it.virtualizer) } }
+            SliderRow("Stereo width", s.width, 0f..100f, "${s.width.roundToInt()}%") { v -> RadaEngine.update { it.copy(width = v.roundToInt().toFloat()) } }
+            Note("Subtle in Standard mode: Android lets RADA lean frequencies left and right, not mix channels.")
+        }
+    }
+    val adv = Cell { AdvancedPanel("Advanced effects", st.advanced, onSetup, listOf(
+        Triple("HRTF spatial", "Binaural rendering of stereo", s.spatial) to { RadaEngine.update { it.copy(spatial = !it.spatial) } },
+        Triple("Crossfeed", "Speaker-like stereo on headphones", s.crossfeed) to { RadaEngine.update { it.copy(crossfeed = !it.crossfeed) } },
+        Triple("True mono", "Left and right in both ears", s.mono) to { RadaEngine.update { it.copy(mono = !it.mono) } },
+    ), footer = if (st.advanced) null else "Until then, Android's own Mono audio is in Settings › Accessibility.") }
+    Page(columns, "Immersive", "Sound space", listOf(room, std, adv))
+}
+
+@Composable
+fun AdvancedPanel(title: String, advanced: Boolean, onSetup: () -> Unit, rows: List<Pair<Triple<String, String, Boolean>, () -> Unit>>, footer: String? = null) {
+    Panel(title = title, trailing = { Tag("Shizuku", TagKind.Advanced) }, brush = AdvBrush, border = Color(0xFF856143)) {
+        rows.forEach { (t, toggle) ->
+            SettingRow(t.first, t.second, t.third, locked = !advanced) { if (advanced) toggle() else onSetup() }
+        }
+        if (advanced) Note("Saved for this output. The capture engine that applies these arrives in the next update.", RadaColors.Amber)
+        else CtaButton("Set up Advanced mode", Modifier.padding(top = 12.dp)) { onSetup() }
+        footer?.let { Note(it) }
     }
 }
 
 @Composable
-fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, unit: String, onChange: (Float) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Row(Modifier.fillMaxWidth()) {
-            Text(label, color = RadaColors.Text, modifier = Modifier.weight(1f))
-            val v = value.roundToInt()
-            Text((if (unit == " dB" && v > 0) "+" else "") + "$v$unit", color = RadaColors.Copper)
-        }
-        Slider(
-            value = value, onValueChange = onChange, valueRange = range,
-            colors = SliderDefaults.colors(thumbColor = RadaColors.Copper, activeTrackColor = RadaColors.Copper, inactiveTrackColor = RadaColors.Panel2),
-        )
-    }
-}
-
-@Composable
-fun PresetRow(current: String) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(Presets.names) { name ->
-            FilterChip(
-                selected = name == current,
-                onClick = { RadaEngine.update { Presets.apply(name, it) } },
-                label = { Text(name) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = RadaColors.Copper, selectedLabelColor = RadaColors.OnCopper,
-                    labelColor = RadaColors.Text,
-                ),
-            )
+fun DevicesScreen(columns: Int, s: Settings, st: RadaEngine.Status) {
+    val hero = Cell {
+        Panel(brush = heroBrush) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Tag(if (st.running) "Connected" else "Engine off"); Spacer(Modifier.weight(1f))
+                Text(st.output.mode, color = RadaColors.Muted, fontSize = 11.sp)
+            }
+            DeviceArt(artKind(st.output), Modifier.padding(top = 4.dp))
+            Text(st.output.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = RadaColors.Text, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Note(if (st.output.bluetooth) "Battery and codec appear here for models with a tested adapter." else "Direct route: no Bluetooth encoding or hardware controls.",
+                modifier = Modifier.fillMaxWidth())
         }
     }
-}
-
-@Composable
-fun Page(content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        content = content,
-    )
-}
-
-// ---------- screens ------------------------------------------------------------------------
-
-@Composable
-fun HomeScreen(s: Settings, st: RadaEngine.Status, onPower: (Boolean) -> Unit) {
-    Page {
-        item { Heading("RADA Sense", "Your sound") }
-        item {
-            Panel {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Sound engine", fontWeight = FontWeight.SemiBold, color = RadaColors.Text)
-                        Text(
-                            when (st.reach) {
-                                RadaEngine.Reach.SYSTEM_WIDE -> "On · all apps"
-                                RadaEngine.Reach.PER_APP -> "On · apps that announce their audio"
-                                RadaEngine.Reach.OFF -> "Off · you hear the original sound"
-                            },
-                            color = RadaColors.Muted, fontSize = 12.sp,
-                        )
-                    }
-                    Switch(
-                        checked = st.running, onCheckedChange = onPower,
-                        colors = SwitchDefaults.colors(checkedTrackColor = RadaColors.Copper, checkedThumbColor = RadaColors.OnCopper),
-                    )
-                }
-                st.message?.let { Note(it, RadaColors.Amber) }
+    val noise = Cell {
+        if (st.output.bluetooth) Panel(title = "Noise control", trailing = { Tag("Manual") }) {
+            Segmented(listOf("Off", "ANC", "Transparency"), s.noise) { n -> RadaEngine.update { it.copy(noise = n) } }
+            Note("No tested adapter for this model yet, so this picks the preset for the mode your headphones are in.")
+        } else Panel(title = "Noise control") { Note("Only for Bluetooth headphones.") }
+    }
+    val correction = Cell {
+        Panel {
+            SettingRow("Headphone correction", "Measured curve for your model", s.autoEq, tag = "Coming soon", tagKind = TagKind.Limit) { RadaEngine.update { it.copy(autoEq = !it.autoEq) } }
+            Text("Model", color = RadaColors.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+            Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(44.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF171615))
+                .border(1.dp, RadaColors.Line, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
+                BasicTextField(value = st.output.name, onValueChange = {}, readOnly = true, singleLine = true,
+                    textStyle = TextStyle(color = RadaColors.Text, fontSize = 15.sp), cursorBrush = SolidColor(RadaColors.Copper))
             }
         }
-        item {
-            Panel {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Tag(st.output.mode)
-                    Spacer(Modifier.weight(1f))
-                    Text("Engine: Standard", color = RadaColors.Muted, fontSize = 12.sp)
-                }
-                Spacer(Modifier.height(12.dp))
-                Text(st.output.name, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = RadaColors.Text)
-                Note("Settings below are saved for this output and come back when you reconnect it.")
-                Spacer(Modifier.height(12.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .border(BorderStroke(1.dp, if (st.bypassed) RadaColors.Amber else RadaColors.Line), RoundedCornerShape(14.dp))
-                        .background(if (st.bypassed) Color(0xFF3A2A1C) else Color.Transparent)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onPress = {
-                                RadaEngine.setBypass(true)
-                                tryAwaitRelease()
-                                RadaEngine.setBypass(false)
-                            })
-                        }
-                        .padding(14.dp),
-                    contentAlignment = Alignment.Center,
+    }
+    val outputs = Cell(full = true) {
+        Panel(title = "Your outputs") {
+            val keys = (RadaEngine.savedOutputs() + st.output.key).distinct()
+            keys.forEach { key ->
+                val playing = key == st.output.key
+                val name = if (playing) st.output.name else key.substringAfter(":").let { if (it == "speaker") "Phone speaker" else if (it == "wired") "Wired headphones" else it }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(14.dp))
+                        .background(if (playing) Color(0xFF382B21) else Color(0x08FFFFFF))
+                        .border(1.dp, if (playing) Color(0xFFE9AB76) else Color(0xFF3A302A), RoundedCornerShape(14.dp)).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        if (st.bypassed) "Original sound" else "Hold to compare with original",
-                        color = if (st.bypassed) RadaColors.Amber else RadaColors.Text,
-                    )
+                    Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF171615)).border(1.dp, RadaColors.Line, RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center) { Text(name.take(1).uppercase(), color = RadaColors.Copper, fontWeight = FontWeight.Bold) }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(name, color = RadaColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(RadaEngine.profileFor(key).preset, color = RadaColors.Muted, fontSize = 12.sp)
+                    }
+                    Text(if (playing) "Playing" else "Saved", color = if (playing) RadaColors.Copper else RadaColors.Muted, fontSize = 12.sp)
                 }
             }
-        }
-        item { Panel("Sound signature") { PresetRow(s.preset) } }
-        item {
-            Panel("Quick controls") {
-                LabeledSlider("Bass", s.bass, 0f..100f, "") { v -> RadaEngine.update { it.copy(bass = v, preset = "Custom") } }
-                LabeledSlider("Clarity", s.clarity, 0f..100f, "") { v -> RadaEngine.update { it.copy(clarity = v, preset = "Custom") } }
-            }
+            Note("Connect headphones or a DAC and RADA switches by itself. Each output keeps its own sound.")
         }
     }
+    Page(columns, "RADA Sense", "Devices", listOf(hero, noise, correction, outputs))
 }
 
 @Composable
-fun EqScreen(s: Settings) {
-    Page {
-        item { Heading("Precision", "Equaliser") }
-        item { Panel("Sound signature") { PresetRow(s.preset) } }
-        item {
-            Panel("10-band graphic EQ") {
-                Settings.FREQS.forEachIndexed { i, f ->
-                    val label = if (f >= 1000f) "${(f / 1000f).let { if (it % 1f == 0f) it.toInt().toString() else it.toString() }} kHz" else "${f.toInt()} Hz"
-                    LabeledSlider(label, s.bands[i], -12f..12f, " dB") { v ->
-                        RadaEngine.update { cur -> cur.copy(bands = cur.bands.toMutableList().also { it[i] = v.roundToInt().toFloat() }, preset = "Custom") }
+fun StudioScreen(columns: Int, s: Settings, st: RadaEngine.Status, version: String, onSetup: () -> Unit, onCopy: () -> Unit) {
+    val dyn = Cell {
+        Panel(title = "Dynamics") {
+            SettingRow("Peak limiter", "Stops clipping when the EQ adds gain", s.limiter) { RadaEngine.update { it.copy(limiter = !it.limiter) } }
+            SettingRow("Compressor", "Evens out loud and quiet parts", s.compressor) { RadaEngine.update { it.copy(compressor = !it.compressor) } }
+            Note("Android gives the output one compressor, so the Night preset and Compressor share it.")
+        }
+    }
+    val ears = Cell {
+        Panel(title = "Your ears", trailing = { Tag("All apps") }) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                listOf("Left ear" to s.leftEar, "Right ear" to s.rightEar).forEach { (l, v) ->
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(Color(0x08FFFFFF)).border(1.dp, Color(0xFF3A302A), RoundedCornerShape(16.dp)).padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(l, color = RadaColors.Muted, fontSize = 13.sp)
+                        Text(db(v), color = RadaColors.Copper, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                OutlinedButton(onClick = { RadaEngine.update { Presets.apply("Reference", it) } }) { Text("Flatten EQ", color = RadaColors.Copper) }
             }
-        }
-        item {
-            Panel("Tone and gain") {
-                LabeledSlider("Preamp", s.preamp, -18f..6f, " dB") { v -> RadaEngine.update { it.copy(preamp = v.roundToInt().toFloat()) } }
-                LabeledSlider("Balance", s.balance, -100f..100f, "") { v -> RadaEngine.update { it.copy(balance = v.roundToInt().toFloat()) } }
-                Note("Preamp lowers the level before boosts, so the limiter rarely has to work.")
-            }
+            SliderRow("Left trim", s.leftEar, -12f..12f, db(s.leftEar), 47) { v -> RadaEngine.update { it.copy(leftEar = (v * 2).roundToInt() / 2f) } }
+            SliderRow("Right trim", s.rightEar, -12f..12f, db(s.rightEar), 47) { v -> RadaEngine.update { it.copy(rightEar = (v * 2).roundToInt() / 2f) } }
+            Note("Set each side until voices sit in the middle. The hearing check comes in a later build.")
         }
     }
-}
-
-@Composable
-fun SpaceScreen(shizukuInstalled: Boolean) {
-    Page {
-        item { Heading("Immersive", "Sound space") }
-        item {
-            Panel("Coming in the next build") {
-                Note("Room reverb (apps that announce their audio) and virtual surround (varies by phone) are planned for the Standard engine.")
+    val adv = Cell { AdvancedPanel("Advanced processing", st.advanced, onSetup, listOf(
+        Triple("Convolution", "Load a room or headphone impulse response", s.convolution) to { RadaEngine.update { it.copy(convolution = !it.convolution) } },
+        Triple("Harmonic warmth", "Gentle valve-style colour", s.warmth) to { RadaEngine.update { it.copy(warmth = !it.warmth) } },
+        Triple("Loudness levelling", "Even volume between songs and apps", s.levelling) to { RadaEngine.update { it.copy(levelling = !it.levelling) } },
+    )) }
+    val profiles = Cell(full = columns > 1) {
+        Panel(title = "Profiles") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GhostButton("Copy profile") { onCopy() }
+                GhostButton("Reset this output") { RadaEngine.resetOutput() }
             }
-        }
-        item {
-            Panel("Advanced engine (Shizuku)") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Shizuku", color = RadaColors.Text, modifier = Modifier.weight(1f))
-                    Tag(if (shizukuInstalled) "Installed" else "Not installed", if (shizukuInstalled) RadaColors.Copper else RadaColors.Amber)
-                }
-                Note("Crossfeed, HRTF spatial, convolution and true mono need Advanced mode, which runs other apps' audio through RADA's own engine. It is not in this alpha.")
-                Note("Until then, Android's own Mono audio is in Settings › Accessibility.")
-            }
+            Note("Profiles hold settings only. RADA never records or uploads audio. RADA audio $version")
         }
     }
-}
-
-@Composable
-fun DevicesScreen(st: RadaEngine.Status) {
-    Page {
-        item { Heading("RADA Sense", "Devices") }
-        item {
-            Panel("Now playing through") {
-                Text(st.output.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = RadaColors.Text)
-                Spacer(Modifier.height(6.dp)); Tag(st.output.mode)
-                Note(if (st.output.bluetooth) "Noise control will appear here for headphone models with a tested adapter." else "Direct route: no Bluetooth encoding or hardware controls.")
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { RadaEngine.resetOutput() }) { Text("Reset this output", color = RadaColors.Copper) }
-            }
-        }
-        item {
-            Panel("Saved outputs") {
-                val saved = RadaEngine.savedOutputs()
-                if (saved.isEmpty()) Note("None yet. Change a setting and it is saved for the current output.")
-                saved.forEach { key ->
-                    Text(key.substringAfter(":").replaceFirstChar { it.uppercase() }, color = RadaColors.Text, modifier = Modifier.padding(vertical = 4.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun StudioScreen(s: Settings, st: RadaEngine.Status, version: String) {
-    Page {
-        item { Heading("Studio", "Processing") }
-        item {
-            Panel("Dynamics") {
-                ToggleRow("Peak limiter", "Stops clipping when the EQ adds gain", s.limiter) { v -> RadaEngine.update { it.copy(limiter = v) } }
-                ToggleRow("Compressor", "Evens out loud and quiet parts (Night preset uses it)", s.compressor) { v -> RadaEngine.update { it.copy(compressor = v) } }
-            }
-        }
-        item {
-            Panel("Apps reached") {
-                if (st.reach == RadaEngine.Reach.SYSTEM_WIDE) Note("System-wide effect active: every app is processed.")
-                if (st.apps.isEmpty()) Note("No app has announced its audio yet. Play something in Spotify or another player.")
-                st.apps.forEach { Text(it, color = RadaColors.Text, fontSize = 13.sp, modifier = Modifier.padding(vertical = 3.dp)) }
-            }
-        }
-        item { Note("RADA audio $version · Standard engine alpha · Settings only, no audio is recorded or uploaded.") }
-    }
+    Page(columns, "Studio", "Processing", listOf(dyn, ears, adv, profiles))
 }

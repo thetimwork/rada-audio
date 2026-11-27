@@ -3,15 +3,20 @@ package africa.myrada.audio.engine
 import android.content.Context
 import android.content.SharedPreferences
 import android.media.audiofx.DynamicsProcessing
+import android.media.audiofx.EnvironmentalReverb
+import android.media.audiofx.Virtualizer
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Standard engine: Android's DynamicsProcessing effect.
- * First it tries the global output (session 0). Android has deprecated that and some phones
- * refuse it, so it falls back to the sessions that apps announce (Spotify and most players do).
+ * Standard engine: Android's own effects.
+ * - DynamicsProcessing for EQ, compressor, limiter and gain. First on the global output
+ *   (session 0); Android has deprecated that and some phones refuse it, so it falls back to the
+ *   sessions apps announce (Spotify and most players).
+ * - EnvironmentalReverb on announced sessions (a global reverb receives no audio).
+ * - Virtualizer on the global output, opt-in, honoured by some phones only.
  */
 object RadaEngine {
     private const val TAG = "RadaEngine"
@@ -25,8 +30,13 @@ object RadaEngine {
         val apps: List<String> = emptyList(),
         val output: OutputInfo = Outputs.SPEAKER,
         val bypassed: Boolean = false,
+        val virtualizerAccepted: Boolean? = null,
+        val reverbApps: Int = 0,
+        val advanced: Boolean = false,
         val message: String? = null,
     )
+
+    private class Session(val pkg: String, var dp: DynamicsProcessing?, var reverb: EnvironmentalReverb?)
 
     private val _settings = MutableStateFlow(Settings())
     val settings: StateFlow<Settings> = _settings.asStateFlow()
@@ -35,12 +45,14 @@ object RadaEngine {
 
     private var prefs: SharedPreferences? = null
     private var global: DynamicsProcessing? = null
-    private val sessions = LinkedHashMap<Int, Pair<String, DynamicsProcessing?>>()
+    private var virtualizer: Virtualizer? = null
+    private val sessions = LinkedHashMap<Int, Session>()
 
     fun init(context: Context) {
         if (prefs != null) return
         prefs = context.getSharedPreferences("rada_profiles", Context.MODE_PRIVATE)
         _settings.value = load(Outputs.SPEAKER.key)
+        _status.value = _status.value.copy(advanced = prefs?.getBoolean("advanced", false) == true)
     }
 
     // ---- lifecycle -------------------------------------------------------------------------
@@ -51,12 +63,11 @@ object RadaEngine {
         global = try {
             build(0)
         } catch (t: Throwable) {
-            Log.w(TAG, "Session 0 refused, using per-app sessions", t)
-            null
+            Log.w(TAG, "Session 0 refused, using per-app sessions", t); null
         }
-        val reach = if (global != null) Reach.SYSTEM_WIDE else Reach.PER_APP
         _status.value = _status.value.copy(
-            running = true, reach = reach,
+            running = true,
+            reach = if (global != null) Reach.SYSTEM_WIDE else Reach.PER_APP,
             message = if (global == null) "This phone refused a system-wide effect. RADA works in apps that announce their audio." else null,
         )
         applyAll()
@@ -65,9 +76,11 @@ object RadaEngine {
     @Synchronized
     fun stop() {
         global?.release(); global = null
-        sessions.values.forEach { it.second?.release() }
+        virtualizer?.release(); virtualizer = null
+        sessions.values.forEach { it.dp?.release(); it.reverb?.release() }
         sessions.clear()
-        _status.value = _status.value.copy(running = false, reach = Reach.OFF, apps = emptyList(), message = null)
+        _status.value = _status.value.copy(running = false, reach = Reach.OFF, apps = emptyList(), reverbApps = 0,
+            virtualizerAccepted = null, message = null)
     }
 
     // ---- sessions announced by apps --------------------------------------------------------
@@ -75,27 +88,26 @@ object RadaEngine {
     @Synchronized
     fun openSession(id: Int, pkg: String) {
         if (id <= 0 || !_status.value.running || sessions.containsKey(id)) return
-        // With a working global effect, a second effect on the app session would double the EQ.
-        val dp = if (global != null) null else try {
-            build(id).also { apply(it) }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Could not attach to session $id ($pkg)", t); null
-        }
-        sessions[id] = pkg to dp
-        publishApps()
+        // With a working global effect, a second DynamicsProcessing on the session would double the EQ.
+        val dp = if (global != null) null else runCatching { build(id) }.onFailure { Log.w(TAG, "dp $id", it) }.getOrNull()
+        sessions[id] = Session(pkg, dp, null)
+        applyAll()
     }
 
     @Synchronized
     fun closeSession(id: Int) {
-        sessions.remove(id)?.second?.release()
+        sessions.remove(id)?.let { it.dp?.release(); it.reverb?.release() }
         publishApps()
     }
 
     private fun publishApps() {
-        _status.value = _status.value.copy(apps = sessions.values.map { it.first }.distinct())
+        _status.value = _status.value.copy(
+            apps = sessions.values.map { it.pkg }.distinct(),
+            reverbApps = sessions.values.count { it.reverb != null },
+        )
     }
 
-    // ---- outputs and settings --------------------------------------------------------------
+    // ---- outputs, settings, modes ----------------------------------------------------------
 
     fun onOutputChanged(output: OutputInfo) {
         if (output == _status.value.output) return
@@ -113,18 +125,25 @@ object RadaEngine {
 
     fun resetOutput() = update { Settings() }
 
-    /** Hold-to-compare: switches the effect off while pressed. Same level, nothing else changes. */
+    fun setAdvanced(on: Boolean) {
+        prefs?.edit()?.putBoolean("advanced", on)?.apply()
+        _status.value = _status.value.copy(advanced = on)
+    }
+
+    /** Hold-to-compare: every effect off while pressed. */
     @Synchronized
     fun setBypass(on: Boolean) {
         _status.value = _status.value.copy(bypassed = on)
-        allEffects().forEach { runCatching { it.enabled = !on } }
+        applyAll()
     }
 
-    fun savedOutputs(): List<String> = prefs?.all?.keys?.sorted() ?: emptyList()
+    fun savedOutputs(): List<String> = prefs?.all?.keys?.filter { it != "advanced" }?.sorted() ?: emptyList()
+
+    fun profileFor(key: String): Settings = load(key)
 
     private fun load(key: String): Settings = Settings.fromJson(prefs?.getString(key, null)) ?: Settings()
 
-    // ---- DynamicsProcessing ----------------------------------------------------------------
+    // ---- effects ---------------------------------------------------------------------------
 
     private fun build(session: Int): DynamicsProcessing {
         val config = DynamicsProcessing.Config.Builder(
@@ -138,22 +157,27 @@ object RadaEngine {
         return DynamicsProcessing(PRIORITY, session, config)
     }
 
-    private fun allEffects(): List<DynamicsProcessing> =
-        listOfNotNull(global) + sessions.values.mapNotNull { it.second }
-
     @Synchronized
     private fun applyAll() {
-        allEffects().forEach { runCatching { apply(it) }.onFailure { e -> Log.w(TAG, "apply failed", e) } }
+        if (!_status.value.running) return
+        val s = _settings.value
+        val active = !_status.value.bypassed
+        (listOfNotNull(global) + sessions.values.mapNotNull { it.dp }).forEach { dp ->
+            runCatching { applyDynamics(dp, s, active) }.onFailure { Log.w(TAG, "dynamics", it) }
+        }
+        applyReverb(s, active)
+        applyVirtualizer(s, active)
+        publishApps()
     }
 
-    private fun apply(dp: DynamicsProcessing) {
-        val s = _settings.value
-
-        val eq = DynamicsProcessing.Eq(true, true, Settings.BAND_COUNT)
-        for (i in 0 until Settings.BAND_COUNT) {
-            eq.setBand(i, DynamicsProcessing.EqBand(true, Settings.CUTOFFS[i], s.bandGain(i)))
+    private fun applyDynamics(dp: DynamicsProcessing, s: Settings, active: Boolean) {
+        for (ch in 0..1) {
+            val eq = DynamicsProcessing.Eq(true, true, Settings.BAND_COUNT)
+            for (i in 0 until Settings.BAND_COUNT) {
+                eq.setBand(i, DynamicsProcessing.EqBand(true, Settings.CUTOFFS[i], s.bandGain(i) + s.widthCut(ch, i)))
+            }
+            dp.setPreEqByChannelIndex(ch, eq)
         }
-        dp.setPreEqAllChannelsTo(eq)
 
         val mbc = DynamicsProcessing.Mbc(true, s.compressor, 1)
         mbc.setBand(0, DynamicsProcessing.MbcBand(
@@ -161,24 +185,66 @@ object RadaEngine {
             10f, 200f,   // attack, release (ms)
             3f, -24f,    // ratio, threshold (dB)
             6f,          // knee width
-            -90f, 1f,    // noise gate threshold, expander ratio (off)
-            0f, 3f,      // pre gain, post gain (dB): a little make-up gain
+            -90f, 1f,    // noise gate off
+            0f, 3f,      // pre gain, make-up gain (dB)
         ))
         dp.setMbcAllChannelsTo(mbc)
 
-        dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(
-            true, s.limiter, 0,
-            1f, 60f,     // attack, release (ms)
-            10f, -1f,    // ratio, threshold (dB)
-            0f,
-        ))
+        dp.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, s.limiter, 0, 1f, 60f, 10f, -1f, 0f))
 
-        // Balance cuts the side it leans away from, so it never adds gain.
-        val left = s.preamp + if (s.balance > 0) -s.balance / 100f * 12f else 0f
-        val right = s.preamp + if (s.balance < 0) s.balance / 100f * 12f else 0f
+        // Balance cuts the side it leans away from; ear trims are per channel.
+        val left = s.preamp + s.leftEar + if (s.balance > 0) -s.balance / 100f * 12f else 0f
+        val right = s.preamp + s.rightEar + if (s.balance < 0) s.balance / 100f * 12f else 0f
         dp.setInputGainbyChannel(0, left)
         dp.setInputGainbyChannel(1, right)
+        dp.enabled = active
+    }
 
-        dp.enabled = !_status.value.bypassed
+    private fun applyReverb(s: Settings, active: Boolean) {
+        val want = active && s.reverb
+        sessions.forEach { (id, sess) ->
+            if (!want) {
+                sess.reverb?.release(); sess.reverb = null
+                return@forEach
+            }
+            if (sess.reverb == null) {
+                sess.reverb = runCatching { EnvironmentalReverb(PRIORITY, id) }
+                    .onFailure { Log.w(TAG, "reverb $id", it) }.getOrNull()
+            }
+            sess.reverb?.let { rv -> runCatching { configureReverb(rv, s); rv.enabled = true } }
+        }
+    }
+
+    private fun configureReverb(rv: EnvironmentalReverb, s: Settings) {
+        val size = s.roomSize / 100f
+        val decay = when (s.room) { "Studio" -> 500; "Concert" -> 1800; "Hall" -> 2800; else -> 1100 }
+        rv.decayTime = (decay * (0.6f + size * 0.8f)).toInt().coerceIn(100, 20000)
+        rv.decayHFRatio = 800.toShort()
+        rv.roomLevel = (-1200 + size * 600).toInt().toShort()
+        rv.roomHFLevel = (-600).toShort()
+        rv.reflectionsLevel = (-1500 + size * 700).toInt().toShort()
+        rv.reflectionsDelay = (8 + size * 40).toInt()
+        rv.reverbLevel = (-1800 + size * 1100).toInt().toShort()
+        rv.reverbDelay = (10 + size * 50).toInt()
+        rv.diffusion = 1000.toShort()
+        rv.density = 1000.toShort()
+    }
+
+    private fun applyVirtualizer(s: Settings, active: Boolean) {
+        val want = active && s.virtualizer
+        if (!want) {
+            virtualizer?.release(); virtualizer = null
+            return
+        }
+        if (virtualizer == null) {
+            virtualizer = runCatching { Virtualizer(PRIORITY, 0) }.onFailure { Log.w(TAG, "virtualizer", it) }.getOrNull()
+        }
+        val v = virtualizer
+        val ok = v != null && runCatching {
+            if (v.strengthSupported) v.setStrength(800.toShort())
+            v.forceVirtualizationMode(Virtualizer.VIRTUALIZATION_MODE_BINAURAL)
+            v.enabled = true
+        }.isSuccess
+        _status.value = _status.value.copy(virtualizerAccepted = ok)
     }
 }
