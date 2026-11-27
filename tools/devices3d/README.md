@@ -9,3 +9,5 @@ cushions so they read on both the black and the warm white card.
 
 48 frames per device (every 7.5°), 660 × 384, transparent background, then converted to WebP into
 `app/src/main/assets/devices/`.
+
+After rendering, `fix_shadow.py` softens the floor shadow and fades it out before the frame edges, so it does not show as a box on the warm white card.
