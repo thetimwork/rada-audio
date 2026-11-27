@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="rada_bg">#FF141312</color>
-    <color name="rada_icon_bg">#FF171615</color>
+    <color name="rada_bg">#FFFFFBF2</color>
+    <color name="rada_icon_bg">#FFFFFBF2</color>
 </resources>

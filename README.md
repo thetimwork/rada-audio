@@ -30,3 +30,10 @@ Open in Android Studio (JDK 17), or run `./gradlew assembleDebug`.
 - `engine/EngineService.kt`: foreground service, session broadcasts, output changes
 - `engine/Outputs.kt`: which output is active
 - `ui/`: Compose screens (Home, EQ, Space, Devices, Studio)
+
+
+## Design
+
+Flat, in the Rada brand: Aesthetic White and Rich Black, one Guardsman Red, Figtree throughout. Light and dark themes (Studio › Appearance: System, Light or Dark). Phone, Fold (closed and open) and tablet layouts.
+
+Figtree is by Erik Kennedy, under the SIL Open Font License 1.1 (see `licenses/Figtree-OFL.txt`).

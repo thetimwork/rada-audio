@@ -85,7 +85,7 @@ object RadaEngine {
         _status.value = _status.value.copy(
             running = true,
             reach = if (global != null) Reach.SYSTEM_WIDE else Reach.PER_APP,
-            message = if (global == null) "This phone refused a system-wide effect. RADA works in apps that announce their audio." else null,
+            message = if (global == null) "This phone refused a system-wide effect. Rada works in apps that announce their audio." else null,
         )
         applyAll()
     }

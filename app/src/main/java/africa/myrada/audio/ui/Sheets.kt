@@ -50,7 +50,7 @@ fun RadaSheet(kind: SheetKind, st: RadaEngine.Status, sh: ShizukuBridge.Info, on
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color(0xFF1C1A18),
+        containerColor = Pal.bg,
     ) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             when (kind) {
@@ -66,14 +66,14 @@ fun RadaSheet(kind: SheetKind, st: RadaEngine.Status, sh: ShizukuBridge.Info, on
 private fun Step(done: Boolean, n: Int, title: String, body: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
         Box(
-            Modifier.size(30.dp).clip(CircleShape).background(if (done) RadaColors.Copper else Color.Transparent)
-                .border(1.dp, if (done) RadaColors.Copper else Color(0xFF856143), CircleShape),
+            Modifier.size(32.dp).clip(CircleShape).background(if (done) Pal.pri else Color.Transparent)
+                .border(1.5.dp, Pal.pri, CircleShape),
             contentAlignment = Alignment.Center,
-        ) { Text(if (done) "✓" else "$n", color = if (done) RadaColors.OnCopper else RadaColors.Copper, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+        ) { Text(if (done) "✓" else "$n", color = if (done) Pal.onPri else Pal.black, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = RadaColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            Text(body, color = RadaColors.Muted, fontSize = 12.sp, lineHeight = 17.sp)
+            Text(title, color = Pal.black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(body, color = Pal.muted2, fontSize = 12.5.sp, lineHeight = 18.sp)
         }
     }
 }
@@ -88,26 +88,26 @@ private fun AdvancedSetup(st: RadaEngine.Status, sh: ShizukuBridge.Info, onDismi
     val permitted = running && sh.state != ShizukuBridge.State.NEEDS_PERMISSION
     val ready = sh.state == ShizukuBridge.State.READY
 
-    Text("NO ROOT NEEDED", color = RadaColors.Copper, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold)
-    Text("Advanced mode", color = RadaColors.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-    Note("Runs other apps' sound through RADA's own engine, so crossfeed, HRTF spatial, convolution and true mono reach them too.", Color(0xFFCFC6BD))
+    Eyebrow("No root needed", Red)
+    Text("Advanced mode", color = Pal.black, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp, modifier = Modifier.padding(top = 4.dp))
+    Note("Runs other apps' sound through Rada's own engine, so crossfeed, HRTF spatial, convolution and true mono reach them too.", Pal.muted2)
     Step(running, 1, "Install and start Shizuku", "From Google Play or GitHub, started with Wireless debugging. Start it again after a reboot.")
-    Step(permitted, 2, "Allow RADA in Shizuku", "Shizuku asks you once.")
-    Step(ready, 3, "Grant capture permissions", "RADA uses Shizuku to let itself see which apps are playing and capture their sound without asking each time.")
+    Step(permitted, 2, "Allow Rada in Shizuku", "Shizuku asks you once.")
+    Step(ready, 3, "Grant capture permissions", "Rada uses Shizuku to let itself see which apps are playing and capture their sound without asking each time.")
     Step(false, 4, "Android 15 and later", "Turn on \"Disable screen share protection\" in Developer options so notifications stay visible.")
-    Box(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF24200F))
-        .border(1.dp, Color(0xFF6B5A2E), RoundedCornerShape(16.dp)).padding(14.dp)) {
+    Box(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(TileRadius)).background(Pal.card)
+        .border(1.dp, Pal.line, RoundedCornerShape(TileRadius)).padding(16.dp)) {
         Text("Good to know: Spotify, Chrome and SoundCloud block capture, so they stay on Standard with full EQ. Advanced adds delay, so video apps stay on Standard.",
-            color = Color(0xFFEFE2BF), fontSize = 12.sp, lineHeight = 17.sp)
+            color = Pal.muted2, fontSize = 12.5.sp, lineHeight = 18.sp)
     }
-    sh.error?.let { Note(it, RadaColors.Amber) }
+    sh.error?.let { Note(it, Red) }
     Spacer(Modifier.height(12.dp))
     when {
         !installed -> CtaButton("Get Shizuku") { openShizukuStore(ctx) }
         !running -> CtaButton("Open Shizuku") {
             ctx.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")?.let { ctx.startActivity(it) }
         }
-        !permitted -> CtaButton("Allow RADA in Shizuku") { ShizukuBridge.requestPermission(ctx) }
+        !permitted -> CtaButton("Allow Rada in Shizuku") { ShizukuBridge.requestPermission(ctx) }
         !ready -> CtaButton(if (busy) "Granting…" else "Grant capture permissions") {
             if (!busy) { busy = true; scope.launch { ShizukuBridge.grant(ctx); busy = false } }
         }
@@ -130,7 +130,7 @@ private val VIDEO = setOf("com.google.android.youtube", "com.netflix.mediaclient
 @Composable
 private fun AppsList(st: RadaEngine.Status) {
     val pm = LocalContext.current.packageManager
-    Text("Apps and engines", color = RadaColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Text("Apps and engines", color = Pal.black, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.7).sp)
     Note("Fills in as apps announce their audio. Each app gets the best engine it allows.")
     if (st.apps.isEmpty()) Note("Nothing yet. Play something in a music app.")
     st.apps.forEach { pkg ->
@@ -142,10 +142,10 @@ private fun AppsList(st: RadaEngine.Status) {
             else -> "Standard" to TagKind.Normal
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(if (kind == TagKind.Advanced) RadaColors.Copper else RadaColors.Muted),
-                contentAlignment = Alignment.Center) { Text(label.take(1).uppercase(), color = Color(0xFF141312), fontWeight = FontWeight.Bold) }
+            Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(if (kind == TagKind.Advanced) Pal.pri else Pal.powder2),
+                contentAlignment = Alignment.Center) { Text(label.take(1).uppercase(), color = if (kind == TagKind.Advanced) Pal.onPri else Pal.black, fontWeight = FontWeight.ExtraBold) }
             Spacer(Modifier.width(12.dp))
-            Text(label, color = RadaColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(label, color = Pal.black, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
             Tag(engine, kind)
         }
     }
@@ -153,20 +153,20 @@ private fun AppsList(st: RadaEngine.Status) {
 
 @Composable
 private fun EngineDetails(st: RadaEngine.Status, sh: ShizukuBridge.Info) {
-    Text("Engine details", color = RadaColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Text("Engine details", color = Pal.black, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.7).sp)
     Spacer(Modifier.height(14.dp))
     val path = listOf("Any app" to "Spotify, YouTube, games", "Android mixer" to "All app sound is combined",
-        "RADA effect" to "Preamp · EQ · compressor · limiter", "Codec encode" to "Bluetooth only", "Your headphones" to "Decode and DAC")
+        "Rada effect" to "Preamp · EQ · compressor · limiter", "Codec encode" to "Bluetooth only", "Your headphones" to "Decode and DAC")
     path.forEachIndexed { i, (t, d) ->
         Row {
             Column(Modifier.width(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(12.dp).clip(CircleShape).background(if (i == 2) RadaColors.Copper else Color.Transparent).border(2.dp, RadaColors.Copper, CircleShape))
-                if (i < path.lastIndex) Box(Modifier.width(2.dp).height(30.dp).background(RadaColors.Line))
+                Box(Modifier.size(12.dp).clip(CircleShape).background(if (i == 2) Red else Color.Transparent).border(2.dp, if (i == 2) Red else Pal.black, CircleShape))
+                if (i < path.lastIndex) Box(Modifier.width(1.5.dp).height(30.dp).background(Pal.line))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.padding(bottom = 10.dp)) {
-                Text(t, color = if (i == 2) RadaColors.Copper else RadaColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                Text(d, color = RadaColors.Muted, fontSize = 12.sp)
+                Text(t, color = Pal.black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(d, color = Pal.muted2, fontSize = 12.5.sp)
             }
         }
     }
@@ -182,8 +182,8 @@ private fun EngineDetails(st: RadaEngine.Status, sh: ShizukuBridge.Info) {
     )
     rows.forEach { (k, v) ->
         Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(k, color = Color(0xFFCFC6BD), fontSize = 13.sp, modifier = Modifier.weight(1f))
-            Text(v, color = RadaColors.Copper, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(k, color = Pal.muted2, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text(v, color = Pal.black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
 }

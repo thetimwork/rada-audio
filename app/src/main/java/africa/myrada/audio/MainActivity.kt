@@ -12,7 +12,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,17 +32,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -54,9 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,32 +60,35 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.runtime.DisposableEffect
 import africa.myrada.audio.engine.EngineService
 import africa.myrada.audio.engine.RadaEngine
 import africa.myrada.audio.engine.ShizukuBridge
-import africa.myrada.audio.ui.CopperBrush
+import africa.myrada.audio.ui.AboutScreen
 import africa.myrada.audio.ui.DevicesScreen
 import africa.myrada.audio.ui.EqScreen
 import africa.myrada.audio.ui.HomeScreen
-import africa.myrada.audio.ui.RadaColors
+import africa.myrada.audio.ui.Pal
 import africa.myrada.audio.ui.RadaSheet
 import africa.myrada.audio.ui.RadaTheme
+import africa.myrada.audio.ui.Red
 import africa.myrada.audio.ui.SheetKind
 import africa.myrada.audio.ui.SpaceScreen
+import africa.myrada.audio.ui.StrokeIcon
 import africa.myrada.audio.ui.StudioScreen
+import africa.myrada.audio.ui.TabIcons
+import africa.myrada.audio.ui.ThemePrefs
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        ThemePrefs.init(applicationContext)
         ShizukuBridge.start(applicationContext)
         setContent { RadaTheme { App() } }
     }
 
-    private data class Tab(val label: String, val icon: ImageVector)
+    private data class Tab(val label: String, val icon: String)
 
     @Composable
     private fun App() {
@@ -98,6 +97,17 @@ class MainActivity : ComponentActivity() {
         val shizuku by ShizukuBridge.info.collectAsState()
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var sheet by remember { mutableStateOf<SheetKind?>(null) }
+
+        // System bars follow the theme.
+        val pal = Pal
+        SideEffect {
+            window.statusBarColor = pal.bg.toArgb()
+            window.navigationBarColor = pal.bg.toArgb()
+            WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = !pal.dark
+                isAppearanceLightNavigationBars = !pal.dark
+            }
+        }
 
         val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
         LaunchedEffect(Unit) {
@@ -115,21 +125,21 @@ class MainActivity : ComponentActivity() {
         }
 
         val tabs = remember {
-            listOf(Tab("Home", Icons.Filled.Home), Tab("EQ", Icons.Filled.Menu), Tab("Space", Icons.Filled.Star),
-                Tab("Devices", Icons.Filled.Phone), Tab("Studio", Icons.Filled.Build))
+            listOf(Tab("Home", TabIcons.HOME), Tab("EQ", TabIcons.EQ), Tab("Space", TabIcons.SPACE),
+                Tab("Devices", TabIcons.DEVICES), Tab("Studio", TabIcons.STUDIO), Tab("About", TabIcons.ABOUT))
         }
         val onEngine: (String) -> Unit = { pick ->
             if (pick == "Advanced" && !status.advanced) sheet = SheetKind.Advanced
             else if (pick == "Standard" && status.advanced) RadaEngine.setAdvanced(false)
         }
 
-        BoxWithConstraints(Modifier.fillMaxSize().background(RadaColors.Bg)) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Pal.bg)) {
             // Phone < 600dp · foldable inner screen 600–999dp · tablet 1000dp+
             val columns = when { maxWidth < 600.dp -> 1; maxWidth < 1000.dp -> 2; else -> 3 }
             val sideNav = columns == 3
 
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                TopBar(status.running, onInfo = { sheet = SheetKind.Engine }) { on ->
+                TopBar(status.running, wide = columns > 1, onInfo = { sheet = SheetKind.Engine }) { on ->
                     if (on) EngineService.start(this@MainActivity) else EngineService.stop(this@MainActivity)
                 }
                 Row(Modifier.weight(1f)) {
@@ -141,7 +151,8 @@ class MainActivity : ComponentActivity() {
                             1 -> EqScreen(columns, settings)
                             2 -> SpaceScreen(columns, settings, status, setup)
                             3 -> DevicesScreen(columns, settings, status)
-                            else -> StudioScreen(columns, settings, status, BuildConfig.VERSION_NAME, setup) { copyProfile() }
+                            4 -> StudioScreen(columns, settings, status, BuildConfig.VERSION_NAME, setup) { copyProfile() }
+                            else -> AboutScreen(columns, BuildConfig.VERSION_NAME)
                         }
                     }
                 }
@@ -153,62 +164,75 @@ class MainActivity : ComponentActivity() {
 
     private fun copyProfile() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("RADA profile", RadaEngine.settings.value.toJson()))
-        Toast.makeText(this, "Profile copied", Toast.LENGTH_SHORT).show()
+        cm.setPrimaryClip(ClipData.newPlainText("Rada Audio settings", RadaEngine.settings.value.toJson()))
+        Toast.makeText(this, "Settings copied", Toast.LENGTH_SHORT).show()
+    }
+
+    /** The Rada wordmark: RADA in Figtree Black, closed with the red dot. Product named alongside. */
+    @Composable
+    private fun Wordmark() {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.semantics { contentDescription = "Rada Audio" }) {
+            Row(verticalAlignment = Alignment.Top) {
+                Text("RADA", fontSize = 27.sp, fontWeight = FontWeight.Black, color = Pal.black, letterSpacing = (-1.2).sp, lineHeight = 27.sp)
+                Box(Modifier.padding(top = 15.dp, start = 1.5.dp).size(5.dp).clip(CircleShape).background(Red))
+            }
+            Spacer(Modifier.width(10.dp))
+            Text("AUDIO", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, color = Pal.muted2,
+                modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, Pal.line, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 5.dp))
+        }
     }
 
     @Composable
-    private fun TopBar(on: Boolean, onInfo: () -> Unit, onPower: (Boolean) -> Unit) {
+    private fun TopBar(on: Boolean, wide: Boolean, onInfo: () -> Unit, onPower: (Boolean) -> Unit) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(horizontal = if (wide) 28.dp else 20.dp).padding(top = 14.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Image(painterResource(R.drawable.rada_logo), contentDescription = "RADA audio", modifier = Modifier.height(46.dp))
+            Wordmark()
             Spacer(Modifier.weight(1f))
             Box(
-                Modifier.size(40.dp).clip(CircleShape).border(1.dp, RadaColors.Line, CircleShape).clickable { onInfo() },
+                Modifier.size(42.dp).clip(CircleShape).background(Pal.card).border(1.dp, Pal.line, CircleShape).clickable { onInfo() }
+                    .semantics { contentDescription = "Engine details" },
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.Info, contentDescription = "Engine details", tint = RadaColors.Muted, modifier = Modifier.size(18.dp)) }
+            ) { StrokeIcon(TabIcons.ABOUT, Pal.black, 18.dp) }
             Spacer(Modifier.width(8.dp))
             Row(
-                Modifier.height(40.dp).clip(RoundedCornerShape(50))
-                    .background(if (on) CopperBrush else androidx.compose.ui.graphics.SolidColor(RadaColors.Panel2))
-                    .border(1.dp, if (on) Color(0xFFE9AB76) else RadaColors.Line, RoundedCornerShape(50))
+                Modifier.height(42.dp).clip(RoundedCornerShape(50))
+                    .background(if (on) Pal.pri else Pal.card)
+                    .border(1.dp, if (on) Pal.pri else Pal.line, RoundedCornerShape(50))
                     .clickable { onPower(!on) }
-                    .padding(start = 14.dp, end = 6.dp),
+                    .semantics { contentDescription = if (on) "Sound engine on" else "Sound engine off" }
+                    .padding(start = 14.dp, end = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (on) "ON" else "OFF", color = if (on) RadaColors.OnCopper else RadaColors.Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Spacer(Modifier.width(8.dp))
-                Box(Modifier.size(width = 30.dp, height = 22.dp).clip(RoundedCornerShape(50))
-                    .background(if (on) Color(0x552A211A) else Color(0xFF393430)).padding(3.dp),
-                    contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
-                    Box(Modifier.size(16.dp).clip(CircleShape).background(if (on) Color(0xFF2A211A) else Color(0xFFAAA29A)))
+                Box(Modifier.size(if (on) 16.dp else 8.dp), contentAlignment = Alignment.Center) {
+                    if (on) Box(Modifier.size(16.dp).clip(CircleShape).background(Red.copy(alpha = 0.22f)))
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(if (on) Red else Pal.powder))
                 }
+                Spacer(Modifier.width(8.dp))
+                Text(if (on) "ON" else "OFF", color = if (on) Pal.onPri else Pal.muted2, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.7.sp)
             }
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF2A2622)))
     }
 
     @Composable
     private fun BottomNav(tabs: List<Tab>, current: Int, wide: Boolean, onPick: (Int) -> Unit) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(RadaColors.Line))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Pal.line2))
         Row(
-            Modifier.fillMaxWidth().background(Color(0xFF171615))
-                .padding(horizontal = if (wide) 80.dp else 2.dp, vertical = 6.dp),
+            Modifier.fillMaxWidth().background(Pal.bg).padding(horizontal = if (wide) 96.dp else 6.dp).padding(top = 8.dp, bottom = 10.dp),
             horizontalArrangement = Arrangement.SpaceAround,
         ) {
             tabs.forEachIndexed { i, t ->
                 val on = i == current
                 Column(
-                    Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { onPick(i) }.padding(vertical = 6.dp),
+                    Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).clickable { onPick(i) }.padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Box(Modifier.size(width = 56.dp, height = 30.dp).clip(RoundedCornerShape(15.dp))
-                        .background(if (on) Color(0xFF33271E) else Color.Transparent), contentAlignment = Alignment.Center) {
-                        Icon(t.icon, contentDescription = null, tint = if (on) RadaColors.Copper else RadaColors.Muted, modifier = Modifier.size(20.dp))
+                    Box(Modifier.size(width = 42.dp, height = 30.dp).clip(RoundedCornerShape(50))
+                        .background(if (on) Pal.pri else Color.Transparent), contentAlignment = Alignment.Center) {
+                        StrokeIcon(t.icon, if (on) Pal.onPri else Pal.muted, 19.dp)
                     }
-                    Text(t.label, fontSize = 11.sp, color = if (on) RadaColors.Copper else RadaColors.Muted)
+                    Text(t.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (on) Pal.black else Pal.muted, modifier = Modifier.padding(top = 3.dp))
                 }
             }
         }
@@ -216,23 +240,24 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun SideNav(tabs: List<Tab>, current: Int, onPick: (Int) -> Unit) {
-        Row(Modifier.fillMaxHeight()) {
-            Column(Modifier.width(220.dp).fillMaxHeight().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                tabs.forEachIndexed { i, t ->
-                    val on = i == current
-                    Row(
-                        Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(14.dp))
-                            .background(if (on) Color(0xFF33271E) else Color.Transparent)
-                            .clickable { onPick(i) }.padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(t.icon, contentDescription = null, tint = if (on) RadaColors.Copper else RadaColors.Muted, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Text(t.label, fontSize = 14.sp, color = if (on) RadaColors.Copper else RadaColors.Muted)
+        Column(Modifier.width(232.dp).fillMaxHeight().padding(horizontal = 16.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            tabs.forEachIndexed { i, t ->
+                val on = i == current
+                Row(
+                    Modifier.fillMaxWidth().height(50.dp)
+                        .then(if (on) Modifier.shadow(6.dp, RoundedCornerShape(50), ambientColor = Color(0x30010A10), spotColor = Color(0x30010A10)) else Modifier)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (on) Pal.card else Color.Transparent)
+                        .clickable { onPick(i) }.padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(34.dp).clip(CircleShape).background(if (on) Pal.pri else Color.Transparent), contentAlignment = Alignment.Center) {
+                        StrokeIcon(t.icon, if (on) Pal.onPri else Pal.muted, 18.dp)
                     }
+                    Spacer(Modifier.width(12.dp))
+                    Text(t.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (on) Pal.black else Pal.muted)
                 }
             }
-            Box(Modifier.width(1.dp).fillMaxHeight().background(Color(0xFF2A2622)))
         }
     }
 }

@@ -83,7 +83,7 @@ class EngineService : Service() {
         )
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("RADA audio is shaping your sound")
+            .setContentTitle("Rada Audio is shaping your sound")
             .setContentText("Tap to adjust")
             .setContentIntent(open)
             .setOngoing(true)

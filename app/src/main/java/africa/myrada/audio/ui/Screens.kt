@@ -1,18 +1,28 @@
 package africa.myrada.audio.ui
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -21,12 +31,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import africa.myrada.audio.engine.OutputInfo
@@ -36,50 +51,36 @@ import africa.myrada.audio.engine.Settings
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** A panel in the adaptive grid. full = spans every column. */
-class Cell(val full: Boolean = false, val content: @Composable () -> Unit)
+// ---------- layout ---------------------------------------------------------------------------
 
-/**
- * Phone: one column. Foldable: two columns meeting at the hinge. Tablet: three columns.
- * Full-width cells break the flow; the others are dealt across the columns in order.
- */
+/** Space between cards: wider on the foldable so nothing sits on the hinge. */
+fun gapFor(columns: Int): Dp = if (columns == 2) 48.dp else 16.dp
+val RowGap = 14.dp
+
+/** A screen: heading, then the screen's own layout for 1, 2 or 3 columns. */
 @Composable
-fun AdaptiveGrid(columns: Int, cells: List<Cell>, gap: Int) {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        var block = mutableListOf<Cell>()
-        val blocks = mutableListOf<List<Cell>>()
-        cells.forEach { c ->
-            if (c.full) { if (block.isNotEmpty()) blocks.add(block); blocks.add(listOf(c)); block = mutableListOf() } else block.add(c)
-        }
-        if (block.isNotEmpty()) blocks.add(block)
-        blocks.forEach { b ->
-            if (b.size == 1 && b[0].full || columns == 1) {
-                b.forEach { it.content() }
-            } else {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
-                    for (col in 0 until columns) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            b.filterIndexed { i, _ -> i % columns == col }.forEach { it.content() }
-                        }
-                    }
-                }
-            }
-        }
+fun Page(columns: Int, eyebrow: String, title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.verticalScroll(rememberScrollState())
+            .padding(horizontal = if (columns == 1) 18.dp else 28.dp)
+            .padding(top = 8.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(RowGap),
+    ) {
+        Heading(eyebrow, title, big = columns > 1)
+        content()
     }
 }
 
+/** A row of cards that all take the height of the tallest. */
 @Composable
-fun Page(columns: Int, eyebrow: String, title: String, cells: List<Cell>) {
-    val gap = if (columns == 2) 48 else 14 // foldable: keep the gap over the hinge
-    Column(
-        Modifier
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = if (columns == 1) 16.dp else 24.dp, vertical = 18.dp)
-    ) {
-        Heading(eyebrow, title)
-        AdaptiveGrid(columns, cells, gap)
-        Spacer(Modifier.height(24.dp))
-    }
+fun EqualRow(columns: Int, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(gapFor(columns)), content = content)
+}
+
+/** A column of cards inside an equal row; the last card stretches to fill. */
+@Composable
+fun androidx.compose.foundation.layout.RowScope.Stack(weight: Float = 1f, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.weight(weight).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(RowGap), content = content)
 }
 
 fun artKind(o: OutputInfo): String = when {
@@ -89,76 +90,130 @@ fun artKind(o: OutputInfo): String = when {
     else -> "head"
 }
 
-private val heroBrush = Brush.radialGradient(listOf(Color(0xFF3A2E26), Color(0xFF221F1D), Color(0xFF161514)))
 private fun db(v: Float) = (if (v > 0) "+" else "") + (if (v % 1f == 0f) v.roundToInt().toString() else "%.1f".format(v)) + " dB"
 
-// ---------------------------------------------------------------------------------------------
+// ---------- shared cards ---------------------------------------------------------------------
+
+@Composable
+private fun Spec(icon: String, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        StrokeIcon(icon, Pal.muted2, 15.dp)
+        Spacer(Modifier.width(6.dp))
+        Text(text, fontSize = 12.5.sp, color = Pal.muted2, maxLines = 1)
+    }
+}
+
+const val IC_ENGINE = "M4 7h10M18 7h2M4 17h4M12 17h8M14 7a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0a2 2 0 1 0-4 0"
+const val IC_APPS = "M6 4h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM16 4h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM6 14h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2zM16 14h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2z"
+const val IC_BT = "M7 7l10 10-5 4V3l5 4L7 17"
+const val IC_WIRE = "M12 3v8M8 11h8v4a4 4 0 0 1-8 0zM12 19v2"
+const val IC_ARROW = "M5 12h14M13 6l6 6-6 6"
+
+/** The device card: black in light mode, warm white in dark. */
+@Composable
+private fun DeviceHero(modifier: Modifier, eyebrow: String, tag: String, o: OutputInfo, specs: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit, footer: @Composable ColumnScope.() -> Unit) {
+    Panel(modifier, contrast = true) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Eyebrow(eyebrow, Pal.muted, Modifier.weight(1f)); Tag(tag)
+        }
+        Spacer(Modifier.weight(1f, fill = false).height(4.dp))
+        DeviceArt(artKind(o), Modifier.padding(top = 6.dp))
+        Text(o.name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Pal.black, letterSpacing = (-1).sp, lineHeight = 30.sp,
+            modifier = Modifier.padding(top = 6.dp))
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) { specs() }
+        footer()
+    }
+}
+
+// ---------- Home ------------------------------------------------------------------------------
 
 @Composable
 fun HomeScreen(columns: Int, s: Settings, st: RadaEngine.Status, onEngine: (String) -> Unit, onApps: () -> Unit, openEq: () -> Unit) {
-    val hero = Cell {
-        Panel(brush = heroBrush) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Tag(st.output.mode); Spacer(Modifier.weight(1f))
-                Text(if (st.output.bluetooth) "Bluetooth · profile loaded" else "Profile loaded", color = RadaColors.Muted, fontSize = 11.sp)
+    val hero: @Composable (Modifier) -> Unit = { m ->
+        DeviceHero(m, "Now shaping", st.output.mode, st.output, specs = {
+            Spec(IC_ENGINE, if (st.advanced) "Advanced" else "Standard")
+            Spec(IC_APPS, when (st.reach) { RadaEngine.Reach.SYSTEM_WIDE -> "All apps"; RadaEngine.Reach.PER_APP -> "Per app"; else -> "Off" })
+            Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("≈0", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Pal.black, letterSpacing = (-0.6).sp)
+                Text(" ms delay", fontSize = 12.sp, color = Pal.black, modifier = Modifier.padding(bottom = 3.dp))
             }
-            DeviceArt(artKind(st.output), Modifier.padding(top = 4.dp))
-            Text(st.output.name, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = RadaColors.Text,
-                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Metric(if (st.advanced) "Advanced" else "Standard", "Engine", Modifier.weight(1f))
-                Metric(when (st.reach) { RadaEngine.Reach.SYSTEM_WIDE -> "All apps"; RadaEngine.Reach.PER_APP -> "Per app"; else -> "Off" }, "Reach", Modifier.weight(1f))
-                Metric("≈0 ms", "Added delay", Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(12.dp))
+        }) {
+            Spacer(Modifier.weight(1f).height(18.dp))
             CompareButton(st.bypassed) { RadaEngine.setBypass(it) }
-            st.message?.let { Note(it, RadaColors.Amber) }
+            st.message?.let { Note(it, Pal.muted2) }
         }
     }
-    val engine = Cell {
-        Panel(title = "Engine") {
+    val engine: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Engine") {
             Segmented(listOf("Standard", "Advanced"), if (st.advanced) "Advanced" else "Standard") { onEngine(it) }
             Note(if (st.advanced) "Advanced is on. Each app gets the best engine it allows." else "Works on every phone. EQ, correction and dynamics through Android's own effect chain.")
-            if (st.advanced) GhostButton("See apps", Modifier.padding(top = 10.dp)) { onApps() }
+            if (st.advanced) GhostButton("See apps", Modifier.padding(top = 12.dp)) { onApps() }
         }
     }
-    val sig = Cell { Panel(title = "Sound signature") { Chips(Presets.names, s.preset) { n -> RadaEngine.update { Presets.apply(n, it) } } } }
-    val quick = Cell {
-        Panel(title = "Quick controls") {
+    val sig: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Sound signature") { Chips(Presets.names, s.preset) { n -> RadaEngine.update { Presets.apply(n, it) } } }
+    }
+    val quick: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Quick controls") {
+            Spacer(Modifier.weight(1f, fill = false))
             DialRow {
                 Dial("Bass", s.bass) { v -> RadaEngine.update { it.copy(bass = v.roundToInt().toFloat(), preset = "Custom") } }
                 Dial("Clarity", s.clarity) { v -> RadaEngine.update { it.copy(clarity = v.roundToInt().toFloat(), preset = "Custom") } }
                 Dial("Width", s.width) { v -> RadaEngine.update { it.copy(width = v.roundToInt().toFloat()) } }
             }
-            Note("Drag a dial up or down. Width is deliberately subtle in Standard mode.")
+            Spacer(Modifier.weight(1f, fill = false))
+            Note(if (st.advanced) "Drag a dial up or down. Width is full in Advanced mode." else "Drag a dial up or down. Width is deliberately subtle in Standard mode.")
         }
     }
-    val eqPreview = Cell {
-        Panel(title = "Equaliser") {
-            EqCurve(List(10) { s.bandGain(it) })
-            Note("${s.preset} · preamp ${db(s.preamp)}")
-            GhostButton("Open equaliser", Modifier.padding(top = 10.dp)) { openEq() }
+    val profiles: @Composable (Modifier) -> Unit = { m -> ProfilesPanel(s, st, compact = true, modifier = m) }
+    val eq: @Composable () -> Unit = {
+        Panel(title = "Equaliser", trailing = { Tag(s.preset) }) {
+            EqChart(List(10) { s.bandGain(it) }, Settings.LABELS, if (columns == 3) 190.dp else 170.dp)
+            Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Preamp ${db(s.preamp)} · limiter ${if (s.limiter) "on" else "off"}", fontSize = 12.5.sp, color = Pal.muted2, modifier = Modifier.weight(1f))
+                GhostButton("Open equaliser") { openEq() }
+            }
         }
     }
-    val saved = Cell { ProfilesPanel(s, st, compact = true) }
-    val cells = if (columns >= 3) listOf(hero, engine, quick, sig, saved, eqPreview) else listOf(hero, engine, sig, saved, quick)
-    Page(columns, "RADA Sense", "Your sound", cells)
+    Page(columns, "Rada Sense", "Your sound") {
+        when (columns) {
+            1 -> { hero(Modifier); engine(Modifier); sig(Modifier); profiles(Modifier); quick(Modifier); eq() }
+            2 -> {
+                EqualRow(columns) {
+                    hero(Modifier.weight(1f).fillMaxHeight())
+                    Stack { engine(Modifier); sig(Modifier.weight(1f)) }
+                }
+                EqualRow(columns) { quick(Modifier.weight(1f).fillMaxHeight()); profiles(Modifier.weight(1f).fillMaxHeight()) }
+                eq()
+            }
+            else -> {
+                EqualRow(columns) {
+                    hero(Modifier.weight(1f).fillMaxHeight())
+                    Stack { engine(Modifier); sig(Modifier.weight(1f)) }
+                    Stack { quick(Modifier); profiles(Modifier.weight(1f)) }
+                }
+                eq()
+            }
+        }
+    }
 }
+
+// ---------- EQ --------------------------------------------------------------------------------
 
 @Composable
 fun EqScreen(columns: Int, s: Settings) {
-    val graphic = Cell(full = columns > 1) {
-        Panel(title = "Graphic EQ", trailing = { Tag("10 bands") }) {
-            EqCurve(List(10) { s.bandGain(it) })
-            Faders(s.bands, Settings.LABELS) { i, v ->
+    val graphic: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Graphic EQ", trailing = { Tag("10 bands") }) {
+            FaderBank(s.bands, Settings.LABELS) { i, v ->
                 RadaEngine.update { cur -> cur.copy(bands = cur.bands.toMutableList().also { it[i] = v }, preset = "Custom") }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(20.dp)); Divider(); Spacer(Modifier.height(18.dp))
             Chips(Presets.names, s.preset) { n -> RadaEngine.update { Presets.apply(n, it) } }
         }
     }
-    val tone = Cell {
-        Panel(title = "Tone and gain") {
+    val tone: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Tone and gain") {
             SliderRow("Preamp", s.preamp, -18f..6f, db(s.preamp), 23) { v -> RadaEngine.update { it.copy(preamp = v.roundToInt().toFloat()) } }
             SliderRow("Treble", s.treble, -12f..12f, db(s.treble), 23) { v -> RadaEngine.update { it.copy(treble = v.roundToInt().toFloat(), preset = "Custom") } }
             val bal = s.balance.roundToInt()
@@ -166,132 +221,189 @@ fun EqScreen(columns: Int, s: Settings) {
             Note("Preamp lowers the level before boosts, so the limiter rarely has to work.")
         }
     }
-    val limits = Cell {
-        Panel(title = "Headroom") {
+    val headroom: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Headroom") {
             SettingRow("Peak limiter", "Stops clipping when the EQ adds gain", s.limiter, tag = "All apps", tagKind = TagKind.Normal) { RadaEngine.update { it.copy(limiter = !it.limiter) } }
-            GhostButton("Flatten EQ") { RadaEngine.update { Presets.apply("Reference", it) } }
+            GhostButton("Flatten EQ", Modifier.padding(top = 6.dp)) { RadaEngine.update { Presets.apply("Reference", it) } }
         }
     }
-    Page(columns, "Precision", "Equaliser", listOf(graphic, tone, limits))
+    Page(columns, "Precision", "Equaliser") {
+        when (columns) {
+            1 -> { graphic(Modifier); tone(Modifier); headroom(Modifier) }
+            2 -> { graphic(Modifier); EqualRow(columns) { tone(Modifier.weight(1f).fillMaxHeight()); headroom(Modifier.weight(1f).fillMaxHeight()) } }
+            else -> EqualRow(columns) {
+                graphic(Modifier.weight(2f).fillMaxHeight())
+                Stack { tone(Modifier); headroom(Modifier.weight(1f)) }
+            }
+        }
+    }
 }
+
+// ---------- Space -----------------------------------------------------------------------------
 
 @Composable
 fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () -> Unit) {
-    val room = Cell {
-        Panel(title = "Room", trailing = { Tag(if (st.reverbApps > 0) "${st.reverbApps} app" + (if (st.reverbApps > 1) "s" else "") else "Some apps", TagKind.Limit) },
-            brush = Brush.radialGradient(listOf(Color(0xFF4A3A2F), Color(0xFF211E1C), Color(0xFF141312)))) {
-            RoomScene(s.roomSize, s.reverb && st.running)
-            Chips(Presets.rooms, s.room) { r -> RadaEngine.update { it.copy(room = r) } }
-            SliderRow("Room size", s.roomSize, 0f..100f, "${s.roomSize.roundToInt()}%") { v -> RadaEngine.update { it.copy(roomSize = v.roundToInt().toFloat()) } }
-            Note("Reverb reaches apps that announce their audio, such as Spotify. Play something there and it lights up.")
+    val room: @Composable (Modifier) -> Unit = { m ->
+        AlwaysLight {
+            Panel(m, title = "Room", trailing = { Tag(if (st.reverbApps > 0) "${st.reverbApps} app" + (if (st.reverbApps > 1) "s" else "") else "Some apps", TagKind.Limit) }) {
+                VinylRadar(s.roomSize, s.reverb && st.running, s.room)
+                Spacer(Modifier.height(8.dp))
+                Chips(Presets.rooms, s.room) { r -> RadaEngine.update { it.copy(room = r) } }
+                SliderRow("Room size", s.roomSize, 0f..100f, "${s.roomSize.roundToInt()}%") { v -> RadaEngine.update { it.copy(roomSize = v.roundToInt().toFloat()) } }
+                Note("Reverb reaches apps that announce their audio, such as Spotify. Play something there and it lights up.")
+            }
         }
     }
-    val std = Cell {
-        Panel {
+    val std: @Composable (Modifier) -> Unit = { m ->
+        Panel(m) {
             SettingRow("Room reverb", "Adds a room around the music", s.reverb, tag = "Some apps") { RadaEngine.update { it.copy(reverb = !it.reverb) } }
+            Divider()
             SettingRow("Virtual surround", when (st.virtualizerAccepted) { true -> "Accepted by this phone"; false -> "This phone ignored it"; null -> "Android's binaural virtualiser, opt-in" },
                 s.virtualizer, tag = "Varies by phone") { RadaEngine.update { it.copy(virtualizer = !it.virtualizer) } }
             SliderRow("Stereo width", s.width, 0f..100f, "${s.width.roundToInt()}%") { v -> RadaEngine.update { it.copy(width = v.roundToInt().toFloat()) } }
-            Note("Subtle in Standard mode: Android lets RADA lean frequencies left and right, not mix channels.")
+            Note("Subtle in Standard mode: Android lets Rada lean frequencies left and right, not mix channels.")
         }
     }
-    val adv = Cell { AdvancedPanel("Advanced effects", st.advanced, onSetup, listOf(
-        Triple("HRTF spatial", "Binaural rendering of stereo", s.spatial) to { RadaEngine.update { it.copy(spatial = !it.spatial) } },
-        Triple("Crossfeed", "Speaker-like stereo on headphones", s.crossfeed) to { RadaEngine.update { it.copy(crossfeed = !it.crossfeed) } },
-        Triple("True mono", "Left and right in both ears", s.mono) to { RadaEngine.update { it.copy(mono = !it.mono) } },
-    ), footer = if (st.advanced) null else "Until then, Android's own Mono audio is in Settings › Accessibility.") }
-    Page(columns, "Immersive", "Sound space", listOf(room, std, adv))
+    val adv: @Composable (Modifier) -> Unit = { m ->
+        AdvancedPanel(m, "Advanced effects", st.advanced, onSetup, listOf(
+            Triple("HRTF spatial", "Binaural rendering of stereo", s.spatial) to { RadaEngine.update { it.copy(spatial = !it.spatial) } },
+            Triple("Crossfeed", "Speaker-like stereo on headphones", s.crossfeed) to { RadaEngine.update { it.copy(crossfeed = !it.crossfeed) } },
+            Triple("True mono", "Left and right in both ears", s.mono) to { RadaEngine.update { it.copy(mono = !it.mono) } },
+        ), footer = if (st.advanced) null else "Until then, Android's own Mono audio is in Settings › Accessibility.")
+    }
+    Page(columns, "Immersive", "Sound space") {
+        when (columns) {
+            1 -> { room(Modifier); std(Modifier); adv(Modifier) }
+            2 -> EqualRow(columns) { room(Modifier.weight(1f).fillMaxHeight()); Stack { std(Modifier); adv(Modifier.weight(1f)) } }
+            else -> EqualRow(columns) { room(Modifier.weight(1f).fillMaxHeight()); std(Modifier.weight(1f).fillMaxHeight()); adv(Modifier.weight(1f).fillMaxHeight()) }
+        }
+    }
 }
 
 @Composable
-fun AdvancedPanel(title: String, advanced: Boolean, onSetup: () -> Unit, rows: List<Pair<Triple<String, String, Boolean>, () -> Unit>>, footer: String? = null) {
-    Panel(title = title, trailing = { Tag("Shizuku", TagKind.Advanced) }, brush = AdvBrush, border = Color(0xFF856143)) {
-        rows.forEach { (t, toggle) ->
+fun AdvancedPanel(modifier: Modifier, title: String, advanced: Boolean, onSetup: () -> Unit, rows: List<Pair<Triple<String, String, Boolean>, () -> Unit>>, footer: String? = null) {
+    Panel(modifier, title = title, trailing = { Tag("Shizuku", TagKind.Advanced) }, contrast = true) {
+        rows.forEachIndexed { i, (t, toggle) ->
+            if (i > 0) Divider()
             SettingRow(t.first, t.second, t.third, locked = !advanced) { if (advanced) toggle() else onSetup() }
         }
-        if (advanced) Note("Saved for this output. The capture engine that applies these arrives in the next update.", RadaColors.Amber)
-        else CtaButton("Set up Advanced mode", Modifier.padding(top = 12.dp)) { onSetup() }
+        if (advanced) Note("Saved for this output. The capture engine that applies these arrives in the next update.")
+        else CtaButton("Set up Advanced mode", Modifier.padding(top = 14.dp)) { onSetup() }
         footer?.let { Note(it) }
     }
 }
 
+// ---------- Devices ---------------------------------------------------------------------------
+
 @Composable
 fun DevicesScreen(columns: Int, s: Settings, st: RadaEngine.Status) {
-    val hero = Cell {
-        Panel(brush = heroBrush) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Tag(if (st.running) "Connected" else "Engine off"); Spacer(Modifier.weight(1f))
-                Text(st.output.mode, color = RadaColors.Muted, fontSize = 11.sp)
-            }
-            DeviceArt(artKind(st.output), Modifier.padding(top = 4.dp))
-            Text(st.output.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = RadaColors.Text, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            Note(if (st.output.bluetooth) "Battery and codec appear here for models with a tested adapter." else "Direct route: no Bluetooth encoding or hardware controls.",
-                modifier = Modifier.fillMaxWidth())
+    val o = st.output
+    val hero: @Composable (Modifier) -> Unit = { m ->
+        DeviceHero(m, if (st.running) "Connected" else "Engine off", o.mode, o, specs = {
+            if (o.bluetooth) Spec(IC_BT, "Bluetooth") else Spec(IC_WIRE, when (artKind(o)) { "dac" -> "USB"; "spk" -> "Built in"; else -> "Wired" })
+            Spec(IC_ENGINE, s.preset)
+        }) {
+            Note(if (o.bluetooth) "Battery and codec appear here for models with a tested adapter." else "Direct route: no Bluetooth encoding or hardware controls.")
         }
     }
-    val noise = Cell {
-        if (st.output.bluetooth) Panel(title = "Noise control", trailing = { Tag("Manual") }) {
+    val noise: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Noise control", trailing = { Tag("Manual") }) {
             Segmented(listOf("Off", "ANC", "Transparency"), s.noise) { n -> RadaEngine.update { it.copy(noise = n) } }
             Note("No tested adapter for this model yet, so this picks the preset for the mode your headphones are in.")
-        } else Panel(title = "Noise control") { Note("Only for Bluetooth headphones.") }
+        }
     }
-    val correction = Cell {
-        Panel {
+    val correction: @Composable (Modifier) -> Unit = { m ->
+        Panel(m) {
             SettingRow("Headphone correction", "Measured curve for your model", s.autoEq, tag = "Coming soon", tagKind = TagKind.Limit) { RadaEngine.update { it.copy(autoEq = !it.autoEq) } }
-            Text("Model", color = RadaColors.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
-            Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(44.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF171615))
-                .border(1.dp, RadaColors.Line, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-                BasicTextField(value = st.output.name, onValueChange = {}, readOnly = true, singleLine = true,
-                    textStyle = TextStyle(color = RadaColors.Text, fontSize = 15.sp), cursorBrush = SolidColor(RadaColors.Copper))
+            Text("Model", color = Pal.muted2, fontSize = 12.5.sp, modifier = Modifier.padding(top = 6.dp))
+            Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(50.dp).clip(RoundedCornerShape(TileRadius)).background(Pal.bg)
+                .border(1.dp, Pal.line, RoundedCornerShape(TileRadius)).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+                BasicTextField(value = o.name, onValueChange = {}, readOnly = true, singleLine = true,
+                    textStyle = TextStyle(fontFamily = Figtree, color = Pal.black, fontSize = 15.sp), cursorBrush = SolidColor(Pal.black))
             }
         }
     }
-    val outputs = Cell(full = true) {
+    val outputs: @Composable () -> Unit = {
         Panel(title = "Your outputs") {
-            val keys = (RadaEngine.savedOutputs() + st.output.key).distinct()
+            val keys = (RadaEngine.savedOutputs() + o.key).distinct()
             keys.forEach { key ->
-                val playing = key == st.output.key
-                val name = if (playing) st.output.name else key.substringAfter(":").let { if (it == "speaker") "Phone speaker" else if (it == "wired") "Wired headphones" else it }
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(14.dp))
-                        .background(if (playing) Color(0xFF382B21) else Color(0x08FFFFFF))
-                        .border(1.dp, if (playing) Color(0xFFE9AB76) else Color(0xFF3A302A), RoundedCornerShape(14.dp)).padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF171615)).border(1.dp, RadaColors.Line, RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center) { Text(name.take(1).uppercase(), color = RadaColors.Copper, fontWeight = FontWeight.Bold) }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(name, color = RadaColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text(RadaEngine.profileFor(key).preset, color = RadaColors.Muted, fontSize = 12.sp)
-                    }
-                    Text(if (playing) "Playing" else "Saved", color = if (playing) RadaColors.Copper else RadaColors.Muted, fontSize = 12.sp)
-                }
+                val playing = key == o.key
+                val name = if (playing) o.name else key.substringAfter(":").let { if (it == "speaker") "Phone speaker" else if (it == "wired") "Wired headphones" else it }
+                OutputRow(name.take(1).uppercase(), name, RadaEngine.profileFor(key).preset, playing)
             }
-            Note("Connect headphones or a DAC and RADA switches by itself. Each output remembers its last sound; saved profiles are the ones you keep.")
+            Note("Connect headphones or a DAC and Rada switches by itself. Each output remembers its last sound; saved profiles are the ones you keep.")
         }
     }
-    val library = Cell(full = true) { ProfilesPanel(s, st) }
-    Page(columns, "RADA Sense", "Devices", listOf(hero, noise, correction, library, outputs))
+    Page(columns, "Rada Sense", "Devices") {
+        when (columns) {
+            1 -> { hero(Modifier); if (o.bluetooth) noise(Modifier); correction(Modifier); ProfilesPanel(s, st); outputs() }
+            2 -> {
+                EqualRow(columns) {
+                    hero(Modifier.weight(1f).fillMaxHeight())
+                    Stack { if (o.bluetooth) noise(Modifier); correction(Modifier.weight(1f)) }
+                }
+                ProfilesPanel(s, st); outputs()
+            }
+            else -> {
+                EqualRow(columns) {
+                    hero(Modifier.weight(1f).fillMaxHeight())
+                    if (o.bluetooth) noise(Modifier.weight(1f).fillMaxHeight())
+                    correction(Modifier.weight(if (o.bluetooth) 1f else 2f).fillMaxHeight())
+                }
+                ProfilesPanel(s, st); outputs()
+            }
+        }
+    }
 }
 
 @Composable
+fun OutputRow(letter: String, title: String, sub: String, on: Boolean, onClick: (() -> Unit)? = null, trailing: (@Composable () -> Unit)? = null) {
+    val shape = RoundedCornerShape(TileRadius)
+    Row(
+        Modifier.fillMaxWidth().padding(top = 10.dp).clip(shape)
+            .background(if (on) Pal.powder2 else Color.Transparent)
+            .border(1.dp, if (on) Color.Transparent else Pal.line, shape)
+            .let { if (onClick != null) it.clickable { onClick() } else it }
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(if (on) Pal.pri else Pal.powder2), contentAlignment = Alignment.Center) {
+            Text(letter, color = if (on) Pal.onPri else Pal.black, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Pal.black, fontWeight = FontWeight.Bold, fontSize = 14.5.sp, maxLines = 1)
+            Text(sub, color = Pal.muted2, fontSize = 12.sp, maxLines = 1)
+        }
+        if (trailing != null) trailing()
+        else Row(verticalAlignment = Alignment.CenterVertically) {
+            if (on) { RedDot(7.dp); Spacer(Modifier.width(6.dp)) }
+            Text(if (on) "PLAYING" else "SAVED", fontSize = 10.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.SemiBold, color = if (on) Pal.black else Pal.muted)
+        }
+    }
+}
+
+// ---------- Studio ----------------------------------------------------------------------------
+
+@Composable
 fun StudioScreen(columns: Int, s: Settings, st: RadaEngine.Status, version: String, onSetup: () -> Unit, onCopy: () -> Unit) {
-    val dyn = Cell {
-        Panel(title = "Dynamics") {
+    val ctx = LocalContext.current
+    val dyn: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Dynamics") {
             SettingRow("Peak limiter", "Stops clipping when the EQ adds gain", s.limiter) { RadaEngine.update { it.copy(limiter = !it.limiter) } }
+            Divider()
             SettingRow("Compressor", "Evens out loud and quiet parts", s.compressor) { RadaEngine.update { it.copy(compressor = !it.compressor) } }
             Note("Android gives the output one compressor, so the Night preset and Compressor share it.")
         }
     }
-    val ears = Cell {
-        Panel(title = "Your ears", trailing = { Tag("All apps") }) {
+    val ears: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Your ears", trailing = { Tag("All apps") }) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 listOf("Left ear" to s.leftEar, "Right ear" to s.rightEar).forEach { (l, v) ->
-                    Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(Color(0x08FFFFFF)).border(1.dp, Color(0xFF3A302A), RoundedCornerShape(16.dp)).padding(14.dp),
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(TileRadius)).background(Pal.powder2).padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(l, color = RadaColors.Muted, fontSize = 13.sp)
-                        Text(db(v), color = RadaColors.Copper, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        Text(l, color = Pal.muted2, fontSize = 13.sp)
+                        Text(db(v), color = Pal.black, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.7).sp, maxLines = 1)
                     }
                 }
             }
@@ -300,19 +412,169 @@ fun StudioScreen(columns: Int, s: Settings, st: RadaEngine.Status, version: Stri
             Note("Set each side until voices sit in the middle. The hearing check comes in a later build.")
         }
     }
-    val adv = Cell { AdvancedPanel("Advanced processing", st.advanced, onSetup, listOf(
-        Triple("Convolution", "Load a room or headphone impulse response", s.convolution) to { RadaEngine.update { it.copy(convolution = !it.convolution) } },
-        Triple("Harmonic warmth", "Gentle valve-style colour", s.warmth) to { RadaEngine.update { it.copy(warmth = !it.warmth) } },
-        Triple("Loudness levelling", "Even volume between songs and apps", s.levelling) to { RadaEngine.update { it.copy(levelling = !it.levelling) } },
-    )) }
-    val profiles = Cell(full = columns > 1) {
-        Panel(title = "This output") {
+    val adv: @Composable (Modifier) -> Unit = { m ->
+        AdvancedPanel(m, "Advanced processing", st.advanced, onSetup, listOf(
+            Triple("Convolution", "Load a room or headphone impulse response", s.convolution) to { RadaEngine.update { it.copy(convolution = !it.convolution) } },
+            Triple("Harmonic warmth", "Gentle valve-style colour", s.warmth) to { RadaEngine.update { it.copy(warmth = !it.warmth) } },
+            Triple("Loudness levelling", "Even volume between songs and apps", s.levelling) to { RadaEngine.update { it.copy(levelling = !it.levelling) } },
+        ))
+    }
+    val output: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "This output") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GhostButton("Copy settings") { onCopy() }
                 GhostButton("Reset this output") { RadaEngine.resetOutput() }
             }
-            Note("Save named profiles on the Home or Devices tab. Profiles hold settings only; RADA never records or uploads audio. RADA audio $version")
+            Note("Save named profiles on the Home or Devices tab. Profiles hold settings only; Rada never records or uploads audio. Rada Audio $version")
         }
     }
-    Page(columns, "Studio", "Processing", listOf(dyn, ears, adv, profiles))
+    val look: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Appearance") {
+            Segmented(listOf("System", "Light", "Dark"), ThemePrefs.mode.value.name) { pick -> ThemePrefs.set(ctx, ThemeMode.valueOf(pick)) }
+            Note("System follows your phone's dark theme setting.")
+        }
+    }
+    Page(columns, "Studio", "Processing") {
+        when (columns) {
+            1 -> { dyn(Modifier); ears(Modifier); adv(Modifier); output(Modifier); look(Modifier) }
+            2 -> {
+                EqualRow(columns) { dyn(Modifier.weight(1f).fillMaxHeight()); ears(Modifier.weight(1f).fillMaxHeight()) }
+                EqualRow(columns) { adv(Modifier.weight(1f).fillMaxHeight()); Stack { look(Modifier); output(Modifier.weight(1f)) } }
+            }
+            else -> {
+                EqualRow(columns) { dyn(Modifier.weight(1f).fillMaxHeight()); ears(Modifier.weight(1f).fillMaxHeight()); adv(Modifier.weight(1f).fillMaxHeight()) }
+                EqualRow(columns) { output(Modifier.weight(2f).fillMaxHeight()); look(Modifier.weight(1f).fillMaxHeight()) }
+            }
+        }
+    }
+}
+
+// ---------- About -----------------------------------------------------------------------------
+
+private val QR = listOf(
+    "1111111001110100001111111",
+    "1000001010101100001000001",
+    "1011101011011010001011101",
+    "1011101011001110001011101",
+    "1011101001110100101011101",
+    "1000001000111110101000001",
+    "1111111010101010101111111",
+    "0000000010001000100000000",
+    "1000001011111111011001110",
+    "1011000010111011000111110",
+    "1110101110110101001101011",
+    "0010010001111011110101001",
+    "1011001011110000101100001",
+    "1000000010001101110100010",
+    "1011101000100111001111011",
+    "1011000011101000001101101",
+    "1000011000101101111110100",
+    "0000000010100101100010000",
+    "1111111001101000101010001",
+    "1000001001010011100010000",
+    "1011101001010001111110111",
+    "1011101001101110011000011",
+    "1011101000100111000001101",
+    "1000001000001101101110001",
+    "1111111010011100101001001"
+)
+
+/** QR code for ecpartners.co, always black on white so phone cameras can read it. */
+@Composable
+private fun QrCode(modifier: Modifier = Modifier) {
+    Canvas(modifier.aspectRatio(1f)) {
+        val n = QR.size
+        val cell = size.width / n
+        QR.forEachIndexed { y, row ->
+            row.forEachIndexed { x, c ->
+                if (c == '1') drawRect(Color(0xFF010A10), Offset(x * cell, y * cell), Size(cell + 0.5f, cell + 0.5f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun Tick(title: String, body: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Box(Modifier.padding(top = 7.dp, end = 14.dp)) { RedDot(6.dp) }
+        Column {
+            Text(title, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = Pal.black)
+            Text(body, fontSize = 12.5.sp, color = Pal.muted2, modifier = Modifier.padding(top = 2.dp))
+        }
+    }
+}
+
+@Composable
+private fun Maker(mark: String, name: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(Pal.pri), contentAlignment = Alignment.Center) {
+            Text(mark, color = Pal.onPri, fontWeight = FontWeight.ExtraBold, fontSize = 12.5.sp, letterSpacing = (-0.3).sp)
+        }
+        Spacer(Modifier.width(14.dp))
+        Text(name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Pal.black)
+    }
+}
+
+@Composable
+private fun Fact(label: String, value: String, modifier: Modifier) {
+    Column(modifier.clip(RoundedCornerShape(TileRadius)).background(Pal.powder2).padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text(label.uppercase(), fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp, color = Pal.muted)
+        Text(value, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Pal.black)
+    }
+}
+
+@Composable
+fun AboutScreen(columns: Int, version: String) {
+    val ctx = LocalContext.current
+    val open = { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ecpartners.co/"))) } }
+    val what: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "What it does") {
+            Text("Rada Audio shapes the sound of every app on your phone. Your apps play, Rada makes them sound better.",
+                fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Pal.black, lineHeight = 23.sp, modifier = Modifier.padding(bottom = 4.dp))
+            Tick("EQ and sound signatures", "Ten bands, presets and quick dials for bass, clarity and width.")
+            Divider()
+            Tick("Room and space", "Room reverb, stereo width and virtual surround.")
+            Divider()
+            Tick("Your gear", "Each output keeps its own sound. Save profiles for your earphones and headphones.")
+            Divider()
+            Tick("Advanced engine", "Crossfeed, HRTF spatial, convolution and true mono through Shizuku. No root needed.")
+            Note("Rada is not a music player. It never records or uploads audio, and your profiles stay on your phone.")
+        }
+    }
+    val made: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, title = "Made by") {
+            Maker("E&C", "E&C Partners")
+            Divider()
+            Maker("T180", "T180")
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Fact("Version", version.removeSuffix("-debug"), Modifier.weight(1f))
+                Fact("Android", "9 and later", Modifier.weight(1f))
+            }
+        }
+    }
+    val qr: @Composable (Modifier) -> Unit = { m ->
+        AlwaysLight {
+            Panel(m, title = "Visit E&C Partners") {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.widthIn(max = 220.dp).fillMaxWidth().clip(RoundedCornerShape(TileRadius)).background(Color.White)
+                            .border(1.dp, Color(0x1A010A10), RoundedCornerShape(TileRadius)).clickable { open() }.padding(16.dp)
+                            .semantics { contentDescription = "QR code for ecpartners.co. Tap to open." }
+                    ) { QrCode(Modifier.fillMaxWidth()) }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 14.dp).clickable { open() }, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    RedDot(7.dp); Spacer(Modifier.width(8.dp))
+                    Text("ecpartners.co", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Pal.black)
+                }
+                Note("Scan with your camera or tap the code.", modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+    Page(columns, "About", "Rada Audio") {
+        when (columns) {
+            1 -> { what(Modifier); made(Modifier); qr(Modifier) }
+            2 -> { what(Modifier); EqualRow(columns) { made(Modifier.weight(1f).fillMaxHeight()); qr(Modifier.weight(1f).fillMaxHeight()) } }
+            else -> EqualRow(columns) { what(Modifier.weight(2f).fillMaxHeight()); Stack { made(Modifier); qr(Modifier.weight(1f)) } }
+        }
+    }
 }
