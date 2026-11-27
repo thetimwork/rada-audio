@@ -97,7 +97,7 @@ private fun AdvancedSetup(st: RadaEngine.Status, sh: ShizukuBridge.Info, onDismi
     Step(false, 4, "Android 15 and later", "Turn on \"Disable screen share protection\" in Developer options so notifications stay visible.")
     Box(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(TileRadius)).background(Pal.card)
         .border(1.dp, Pal.line, RoundedCornerShape(TileRadius)).padding(16.dp)) {
-        Text("Good to know: Spotify, Chrome and SoundCloud block capture, so they stay on Standard with full EQ. Advanced adds delay, so video apps stay on Standard.",
+        Text("Good to know: Rada checks each playing app. Apps that block capture stay on Standard with full EQ. Processed sound arrives with a short delay, so video can sit slightly behind the picture. Android may show its recording indicator while Advanced runs. Needs Android 10 or later.",
             color = Pal.muted2, fontSize = 12.5.sp, lineHeight = 18.sp)
     }
     sh.error?.let { Note(it, Red) }
@@ -124,29 +124,23 @@ private fun openShizukuStore(ctx: Context) {
     }
 }
 
-private val BLOCKED = setOf("com.spotify.music", "com.android.chrome", "com.soundcloud.android")
-private val VIDEO = setOf("com.google.android.youtube", "com.netflix.mediaclient", "com.amazon.avod.thirdpartyclient", "com.disney.disneyplus")
 
 @Composable
 private fun AppsList(st: RadaEngine.Status) {
     val pm = LocalContext.current.packageManager
+    fun label(pkg: String) = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA)).toString() }.getOrDefault(pkg)
     Text("Apps and engines", color = Pal.black, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.7).sp)
-    Note("Fills in as apps announce their audio. Each app gets the best engine it allows.")
-    if (st.apps.isEmpty()) Note("Nothing yet. Play something in a music app.")
-    st.apps.forEach { pkg ->
-        val label = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA)).toString() }.getOrDefault(pkg)
-        val (engine, kind) = when {
-            pkg in BLOCKED -> "Standard · blocks capture" to TagKind.Limit
-            pkg in VIDEO -> "Standard · video" to TagKind.Limit
-            st.advanced -> "Advanced" to TagKind.Advanced
-            else -> "Standard" to TagKind.Normal
-        }
+    Note(if (st.capture) "Advanced processes every playing app that allows capture. Apps that block it stay on Standard."
+         else "Apps appear here while they play. In Standard mode only apps that share their audio with sound apps are listed.")
+    val rows = st.capturedApps.map { it to true } + st.apps.map { label(it) }.filter { it !in st.capturedApps }.map { it to false }
+    if (rows.isEmpty()) Note("Nothing playing yet. Play something and it shows up here.")
+    rows.forEach { (name, adv) ->
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(if (kind == TagKind.Advanced) Pal.pri else Pal.powder2),
-                contentAlignment = Alignment.Center) { Text(label.take(1).uppercase(), color = if (kind == TagKind.Advanced) Pal.onPri else Pal.black, fontWeight = FontWeight.ExtraBold) }
+            Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(if (adv) Pal.pri else Pal.powder2),
+                contentAlignment = Alignment.Center) { Text(name.take(1).uppercase(), color = if (adv) Pal.onPri else Pal.black, fontWeight = FontWeight.ExtraBold) }
             Spacer(Modifier.width(12.dp))
-            Text(label, color = Pal.black, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-            Tag(engine, kind)
+            Text(name, color = Pal.black, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Tag(if (adv) "Advanced" else "Standard", if (adv) TagKind.Advanced else TagKind.Normal)
         }
     }
 }

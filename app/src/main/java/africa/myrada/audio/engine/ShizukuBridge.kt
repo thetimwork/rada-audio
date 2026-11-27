@@ -84,12 +84,26 @@ object ShizukuBridge {
         val pkg = context.packageName
         val dump = shell("pm grant $pkg android.permission.DUMP")
         val media = shell("appops set $pkg PROJECT_MEDIA allow")
+        // Playback capture needs the record permission; granting it here saves another prompt.
+        shell("pm grant $pkg android.permission.RECORD_AUDIO")
         _info.value = _info.value.copy(
             error = if (dump && media) null else "Shizuku could not grant permissions. Restart Shizuku and try again.",
         )
         refresh(context)
         dump && media
     }
+
+    /** Runs a shell command through Shizuku and returns what it printed, or null. */
+    fun shellOutput(cmd: String): String? = try {
+        val m = Shizuku::class.java.getDeclaredMethod(
+            "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java,
+        )
+        m.isAccessible = true
+        val process = m.invoke(null, arrayOf("sh", "-c", cmd), null, null) as Process
+        val out = process.inputStream.bufferedReader().readText()
+        process.waitFor()
+        out
+    } catch (t: Throwable) { Log.w(TAG, "shell output failed: $cmd", t); null }
 
     /** Shizuku.newProcess is private in API 13; it is still the documented shell path, so call it reflectively. */
     private fun shell(cmd: String): Boolean = try {

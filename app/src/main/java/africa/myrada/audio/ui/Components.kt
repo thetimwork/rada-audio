@@ -198,6 +198,7 @@ fun SettingRow(
     tag: String? = null,
     tagKind: TagKind = TagKind.Limit,
     locked: Boolean = false,
+    lockedText: String = "Needs Advanced mode (Shizuku)",
     onToggle: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().alpha(if (locked) 0.6f else 1f).padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -206,7 +207,7 @@ fun SettingRow(
                 Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = Pal.black)
                 if (tag != null) { Spacer(Modifier.width(8.dp)); Tag(tag, tagKind) }
             }
-            Text(if (locked) "Needs Advanced mode (Shizuku)" else subtitle, color = Pal.muted2, fontSize = 12.5.sp, modifier = Modifier.padding(top = 3.dp))
+            Text(if (locked) lockedText else subtitle, color = Pal.muted2, fontSize = 12.5.sp, modifier = Modifier.padding(top = 3.dp))
         }
         Spacer(Modifier.width(14.dp))
         RadaSwitch(checked = checked && !locked, enabled = !locked, label = title, onToggle = onToggle)

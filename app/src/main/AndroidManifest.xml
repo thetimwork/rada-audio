@@ -8,13 +8,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Bluetooth device names for output profiles (Android 12+) -->
+    <!-- Bluetooth device names for outputs: Android 12+ asks; older versions use the normal permission -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+
+    <!-- Advanced mode: capturing other apps' playback (Android 10+) needs the record permission and a
+         media-projection service. Granted through Shizuku during setup. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <!-- Granted through Shizuku for Advanced mode: find playing app sessions -->
     <uses-permission android:name="android.permission.DUMP" tools:ignore="ProtectedPermissions" />
 
-    <!-- Lets RADA see whether Shizuku is installed, for Advanced mode -->
+    <!-- Lets Rada see whether Shizuku is installed, for Advanced mode -->
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
     </queries>
@@ -42,12 +48,12 @@
         <service
             android:name=".engine.EngineService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|mediaProjection">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="System-wide audio equaliser that must stay active while other apps play sound" />
         </service>
-        <!-- Shizuku hands RADA its binder through this provider -->
+        <!-- Shizuku hands Rada its binder through this provider -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

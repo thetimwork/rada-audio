@@ -94,6 +94,22 @@ private fun db(v: Float) = (if (v > 0) "+" else "") + (if (v % 1f == 0f) v.round
 
 // ---------- shared cards ---------------------------------------------------------------------
 
+/** A status on the device card that opens where you change it. */
+@Composable
+private fun SpecChip(icon: String, text: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Row(
+        Modifier.clip(shape).border(1.dp, Pal.line, shape).clickable { onClick() }.padding(start = 10.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StrokeIcon(icon, Pal.muted2, 14.dp)
+        Spacer(Modifier.width(6.dp))
+        Text(text, fontSize = 12.5.sp, color = Pal.black, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Spacer(Modifier.width(4.dp))
+        StrokeIcon("M9 6l6 6-6 6", Pal.muted, 12.dp)
+    }
+}
+
 @Composable
 private fun Spec(icon: String, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -117,7 +133,7 @@ private fun DeviceHero(modifier: Modifier, eyebrow: String, tag: String, o: Outp
             Eyebrow(eyebrow, Pal.muted, Modifier.weight(1f)); Tag(tag)
         }
         Spacer(Modifier.weight(1f, fill = false).height(4.dp))
-        DeviceArt(artKind(o), Modifier.padding(top = 6.dp))
+        DeviceSpin(artKind(o), o.name, Modifier.padding(top = 6.dp))
         Text(o.name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Pal.black, letterSpacing = (-1).sp, lineHeight = 30.sp,
             modifier = Modifier.padding(top = 6.dp))
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) { specs() }
@@ -128,11 +144,13 @@ private fun DeviceHero(modifier: Modifier, eyebrow: String, tag: String, o: Outp
 // ---------- Home ------------------------------------------------------------------------------
 
 @Composable
-fun HomeScreen(columns: Int, s: Settings, st: RadaEngine.Status, onEngine: (String) -> Unit, onApps: () -> Unit, openEq: () -> Unit) {
+fun HomeScreen(columns: Int, s: Settings, st: RadaEngine.Status, onEngine: (String) -> Unit, onApps: () -> Unit, openEq: () -> Unit,
+               onEngineTap: () -> Unit = {}, onReachTap: () -> Unit = {}) {
     val hero: @Composable (Modifier) -> Unit = { m ->
         DeviceHero(m, "Now shaping", st.output.mode, st.output, specs = {
-            Spec(IC_ENGINE, if (st.advanced) "Advanced" else "Standard")
-            Spec(IC_APPS, when (st.reach) { RadaEngine.Reach.SYSTEM_WIDE -> "All apps"; RadaEngine.Reach.PER_APP -> "Per app"; else -> "Off" })
+            // Engine in use (tap: set up or see Advanced) and how far the EQ reaches (tap: details)
+            SpecChip(IC_ENGINE, when { st.capture -> "Advanced"; st.advanced -> "Advanced · paused"; else -> "Standard" }) { onEngineTap() }
+            SpecChip(IC_APPS, when (st.reach) { RadaEngine.Reach.SYSTEM_WIDE -> "EQ: all apps"; RadaEngine.Reach.PER_APP -> "EQ: some apps"; else -> "Off" }) { onReachTap() }
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text("≈0", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Pal.black, letterSpacing = (-0.6).sp)
@@ -147,7 +165,11 @@ fun HomeScreen(columns: Int, s: Settings, st: RadaEngine.Status, onEngine: (Stri
     val engine: @Composable (Modifier) -> Unit = { m ->
         Panel(m, title = "Engine") {
             Segmented(listOf("Standard", "Advanced"), if (st.advanced) "Advanced" else "Standard") { onEngine(it) }
-            Note(if (st.advanced) "Advanced is on. Each app gets the best engine it allows." else "Works on every phone. EQ, correction and dynamics through Android's own effect chain.")
+            Note(when {
+                st.capture -> "Advanced is processing " + (st.capturedApps.takeIf { it.isNotEmpty() }?.joinToString() ?: "apps as they play") + ". Apps that block capture stay on Standard."
+                st.advanced -> st.captureMessage ?: "Advanced is on. It starts when Android hands over audio capture."
+                else -> "Works on every phone. EQ, correction and dynamics through Android's own effect chain. Rooms and surround reach every app only in Advanced."
+            })
             if (st.advanced) GhostButton("See apps", Modifier.padding(top = 12.dp)) { onApps() }
         }
     }
@@ -245,28 +267,43 @@ fun EqScreen(columns: Int, s: Settings) {
 fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () -> Unit) {
     val room: @Composable (Modifier) -> Unit = { m ->
         AlwaysLight {
-            Panel(m, title = "Room", trailing = { Tag(if (st.reverbApps > 0) "${st.reverbApps} app" + (if (st.reverbApps > 1) "s" else "") else "Some apps", TagKind.Limit) }) {
+            val reach = when {
+                st.capture -> "All captured apps"
+                st.reverbApps > 0 -> "${st.reverbApps} app" + (if (st.reverbApps > 1) "s" else "")
+                else -> "No app yet"
+            }
+            Panel(m, title = "Room", trailing = { Tag(reach, if (st.capture || st.reverbApps > 0) TagKind.Live else TagKind.Limit) }) {
                 VinylRadar(s.roomSize, s.reverb && st.running, s.room)
                 Spacer(Modifier.height(8.dp))
-                Chips(Presets.rooms, s.room) { r -> RadaEngine.update { it.copy(room = r) } }
-                SliderRow("Room size", s.roomSize, 0f..100f, "${s.roomSize.roundToInt()}%") { v -> RadaEngine.update { it.copy(roomSize = v.roundToInt().toFloat()) } }
-                Note("Reverb reaches apps that announce their audio, such as Spotify. Play something there and it lights up.")
+                // Picking a room switches the reverb on: a room you can't hear is no use.
+                Chips(Presets.rooms, s.room) { r -> RadaEngine.update { it.copy(room = r, reverb = true) } }
+                SliderRow("Room size", s.roomSize, 0f..100f, "${s.roomSize.roundToInt()}%") { v -> RadaEngine.update { it.copy(roomSize = v.roundToInt().toFloat(), reverb = true) } }
+                Note(when {
+                    !s.reverb -> "Room reverb is off. Pick a room to turn it on."
+                    st.capture -> "Rada's own reverb is on every captured app. Room size sets how big the space sounds and how long it rings."
+                    st.reverbApps > 0 -> "Reaching apps that share their audio with sound apps. YouTube and most video apps don't, so they need Advanced."
+                    else -> "No app is sharing its audio yet. Spotify and most music players do; YouTube and most video apps don't, so in Standard mode rooms can't reach them. Advanced mode can."
+                })
+                if (!st.capture) GhostButton(if (st.advanced) "Advanced status" else "Set up Advanced", Modifier.padding(top = 12.dp)) { onSetup() }
             }
         }
     }
     val std: @Composable (Modifier) -> Unit = { m ->
         Panel(m) {
-            SettingRow("Room reverb", "Adds a room around the music", s.reverb, tag = "Some apps") { RadaEngine.update { it.copy(reverb = !it.reverb) } }
+            SettingRow("Room reverb", if (st.capture) "Rada's own reverb on captured apps" else "Only apps that share their audio", s.reverb,
+                tag = if (st.capture) "Advanced" else "Some apps", tagKind = if (st.capture) TagKind.Advanced else TagKind.Limit) { RadaEngine.update { it.copy(reverb = !it.reverb) } }
             Divider()
-            SettingRow("Virtual surround", when (st.virtualizerAccepted) { true -> "Accepted by this phone"; false -> "This phone ignored it"; null -> "Android's binaural virtualiser, opt-in" },
-                s.virtualizer, tag = "Varies by phone") { RadaEngine.update { it.copy(virtualizer = !it.virtualizer) } }
+            SettingRow("Virtual surround",
+                if (st.capture) "Rada speaker simulation: two speakers in front of you, in your headphones"
+                else when (st.virtualizerAccepted) { true -> "Android's virtualiser, accepted by this phone"; false -> "This phone ignored Android's virtualiser"; null -> "Android's virtualiser in Standard; Rada's own in Advanced" },
+                s.virtualizer, tag = if (st.capture) "Advanced" else "Varies by phone", tagKind = if (st.capture) TagKind.Advanced else TagKind.Limit) { RadaEngine.update { it.copy(virtualizer = !it.virtualizer) } }
             SliderRow("Stereo width", s.width, 0f..100f, "${s.width.roundToInt()}%") { v -> RadaEngine.update { it.copy(width = v.roundToInt().toFloat()) } }
             Note("Subtle in Standard mode: Android lets Rada lean frequencies left and right, not mix channels.")
         }
     }
     val adv: @Composable (Modifier) -> Unit = { m ->
-        AdvancedPanel(m, "Advanced effects", st.advanced, onSetup, listOf(
-            Triple("HRTF spatial", "Binaural rendering of stereo", s.spatial) to { RadaEngine.update { it.copy(spatial = !it.spatial) } },
+        AdvancedPanel(m, "Advanced effects", st, onSetup, listOf(
+            Triple("HRTF spatial", "Needs measured head-response data, not in this build", s.spatial) to { RadaEngine.update { it.copy(spatial = !it.spatial) } },
             Triple("Crossfeed", "Speaker-like stereo on headphones", s.crossfeed) to { RadaEngine.update { it.copy(crossfeed = !it.crossfeed) } },
             Triple("True mono", "Left and right in both ears", s.mono) to { RadaEngine.update { it.copy(mono = !it.mono) } },
         ), footer = if (st.advanced) null else "Until then, Android's own Mono audio is in Settings › Accessibility.")
@@ -281,14 +318,23 @@ fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () ->
 }
 
 @Composable
-fun AdvancedPanel(modifier: Modifier, title: String, advanced: Boolean, onSetup: () -> Unit, rows: List<Pair<Triple<String, String, Boolean>, () -> Unit>>, footer: String? = null) {
+/** Effects Rada has not built yet; shown so nothing pretends to work. */
+private val NOT_BUILT = setOf("HRTF spatial", "Convolution")
+
+@Composable
+fun AdvancedPanel(modifier: Modifier, title: String, st: RadaEngine.Status, onSetup: () -> Unit, rows: List<Pair<Triple<String, String, Boolean>, () -> Unit>>, footer: String? = null) {
+    val advanced = st.advanced
     Panel(modifier, title = title, trailing = { Tag("Shizuku", TagKind.Advanced) }, contrast = true) {
         rows.forEachIndexed { i, (t, toggle) ->
             if (i > 0) Divider()
-            SettingRow(t.first, t.second, t.third, locked = !advanced) { if (advanced) toggle() else onSetup() }
+            if (t.first in NOT_BUILT) SettingRow(t.first, t.second, false, tag = "Not built yet", locked = true, lockedText = t.second) {}
+            else SettingRow(t.first, t.second, t.third, locked = !advanced) { if (advanced) toggle() else onSetup() }
         }
-        if (advanced) Note("Saved for this output. The capture engine that applies these arrives in the next update.")
-        else CtaButton("Set up Advanced mode", Modifier.padding(top = 14.dp)) { onSetup() }
+        when {
+            st.capture -> Note("Working now" + (st.capturedApps.takeIf { it.isNotEmpty() }?.let { " on " + it.joinToString() } ?: ", on apps as they play") + ".")
+            advanced -> Note(st.captureMessage ?: "Advanced is on. It starts when Android hands over audio capture.")
+            else -> CtaButton("Set up Advanced mode", Modifier.padding(top = 14.dp)) { onSetup() }
+        }
         footer?.let { Note(it) }
     }
 }
@@ -413,8 +459,8 @@ fun StudioScreen(columns: Int, s: Settings, st: RadaEngine.Status, version: Stri
         }
     }
     val adv: @Composable (Modifier) -> Unit = { m ->
-        AdvancedPanel(m, "Advanced processing", st.advanced, onSetup, listOf(
-            Triple("Convolution", "Load a room or headphone impulse response", s.convolution) to { RadaEngine.update { it.copy(convolution = !it.convolution) } },
+        AdvancedPanel(m, "Advanced processing", st, onSetup, listOf(
+            Triple("Convolution", "Room or headphone impulse responses, not in this build", s.convolution) to { RadaEngine.update { it.copy(convolution = !it.convolution) } },
             Triple("Harmonic warmth", "Gentle valve-style colour", s.warmth) to { RadaEngine.update { it.copy(warmth = !it.warmth) } },
             Triple("Loudness levelling", "Even volume between songs and apps", s.levelling) to { RadaEngine.update { it.copy(levelling = !it.levelling) } },
         ))
@@ -428,22 +474,16 @@ fun StudioScreen(columns: Int, s: Settings, st: RadaEngine.Status, version: Stri
             Note("Save named profiles on the Home or Devices tab. Profiles hold settings only; Rada never records or uploads audio. Rada Audio $version")
         }
     }
-    val look: @Composable (Modifier) -> Unit = { m ->
-        Panel(m, title = "Appearance") {
-            Segmented(listOf("System", "Light", "Dark"), ThemePrefs.mode.value.name) { pick -> ThemePrefs.set(ctx, ThemeMode.valueOf(pick)) }
-            Note("System follows your phone's dark theme setting.")
-        }
-    }
     Page(columns, "Studio", "Processing") {
         when (columns) {
-            1 -> { dyn(Modifier); ears(Modifier); adv(Modifier); output(Modifier); look(Modifier) }
+            1 -> { dyn(Modifier); ears(Modifier); adv(Modifier); output(Modifier) }
             2 -> {
                 EqualRow(columns) { dyn(Modifier.weight(1f).fillMaxHeight()); ears(Modifier.weight(1f).fillMaxHeight()) }
-                EqualRow(columns) { adv(Modifier.weight(1f).fillMaxHeight()); Stack { look(Modifier); output(Modifier.weight(1f)) } }
+                EqualRow(columns) { adv(Modifier.weight(1f).fillMaxHeight()); output(Modifier.weight(1f).fillMaxHeight()) }
             }
             else -> {
                 EqualRow(columns) { dyn(Modifier.weight(1f).fillMaxHeight()); ears(Modifier.weight(1f).fillMaxHeight()); adv(Modifier.weight(1f).fillMaxHeight()) }
-                EqualRow(columns) { output(Modifier.weight(2f).fillMaxHeight()); look(Modifier.weight(1f).fillMaxHeight()) }
+                output(Modifier)
             }
         }
     }

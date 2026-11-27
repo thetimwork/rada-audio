@@ -34,6 +34,10 @@ object RadaEngine {
         val reverbApps: Int = 0,
         val advanced: Boolean = false,
         val message: String? = null,
+        /** Advanced capture engine running, and the apps it is processing now. */
+        val capture: Boolean = false,
+        val capturedApps: List<String> = emptyList(),
+        val captureMessage: String? = null,
     )
 
     /** A sound the user saved by name, for a type of listening gear. */
@@ -67,6 +71,7 @@ object RadaEngine {
     fun init(context: Context) {
         if (prefs != null) return
         prefs = context.getSharedPreferences("rada_profiles", Context.MODE_PRIVATE)
+        ownPackage = context.packageName
         _settings.value = load(Outputs.SPEAKER.key)
         _status.value = _status.value.copy(advanced = prefs?.getBoolean("advanced", false) == true)
         _library.value = readLibrary()
@@ -117,10 +122,12 @@ object RadaEngine {
         publishApps()
     }
 
+    private var ownPackage = ""
+
     private fun publishApps() {
         _status.value = _status.value.copy(
-            apps = sessions.values.map { it.pkg }.distinct(),
-            reverbApps = sessions.values.count { it.reverb != null },
+            apps = sessions.values.map { it.pkg }.filter { it != ownPackage }.distinct(),
+            reverbApps = sessions.values.count { it.reverb != null && it.pkg != ownPackage },
         )
     }
 
@@ -144,7 +151,15 @@ object RadaEngine {
 
     fun setAdvanced(on: Boolean) {
         prefs?.edit()?.putBoolean("advanced", on)?.apply()
-        _status.value = _status.value.copy(advanced = on)
+        _status.value = _status.value.copy(advanced = on, captureMessage = if (on) null else _status.value.captureMessage)
+    }
+
+    /** Reported by the capture engine. While it runs, Rada's own surround replaces Android's virtualiser. */
+    @Synchronized
+    fun onCaptureChanged(running: Boolean, apps: List<String>, message: String?) {
+        val was = _status.value.capture
+        _status.value = _status.value.copy(capture = running, capturedApps = apps, captureMessage = message ?: if (running) null else _status.value.captureMessage)
+        if (was != running) applyAll()
     }
 
     /** Hold-to-compare: every effect off while pressed. */
@@ -266,7 +281,7 @@ object RadaEngine {
     private fun applyReverb(s: Settings, active: Boolean) {
         val want = active && s.reverb
         sessions.forEach { (id, sess) ->
-            if (!want) {
+            if (!want || sess.pkg == ownPackage) {
                 sess.reverb?.release(); sess.reverb = null
                 return@forEach
             }
@@ -294,9 +309,10 @@ object RadaEngine {
     }
 
     private fun applyVirtualizer(s: Settings, active: Boolean) {
-        val want = active && s.virtualizer
+        val want = active && s.virtualizer && !_status.value.capture
         if (!want) {
             virtualizer?.release(); virtualizer = null
+            if (_status.value.capture) _status.value = _status.value.copy(virtualizerAccepted = null)
             return
         }
         if (virtualizer == null) {

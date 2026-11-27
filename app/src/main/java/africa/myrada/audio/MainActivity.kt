@@ -76,7 +76,12 @@ import africa.myrada.audio.ui.SpaceScreen
 import africa.myrada.audio.ui.StrokeIcon
 import africa.myrada.audio.ui.StudioScreen
 import africa.myrada.audio.ui.TabIcons
+import africa.myrada.audio.ui.ThemeMode
 import africa.myrada.audio.ui.ThemePrefs
+import africa.myrada.audio.engine.Outputs
+import android.media.AudioManager
+import android.media.projection.MediaProjectionManager
+import android.app.Activity
 
 class MainActivity : ComponentActivity() {
 
@@ -109,12 +114,43 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        fun granted(p: String) = ContextCompat.checkSelfPermission(this@MainActivity, p) == PackageManager.PERMISSION_GRANTED
+        val refreshOutput = {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            RadaEngine.onOutputChanged(Outputs.current(this@MainActivity, am))
+        }
+        // Notifications (engine status) and Bluetooth (the real name of your headphones), asked together.
+        val startPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshOutput() }
         LaunchedEffect(Unit) {
-            if (Build.VERSION.SDK_INT >= 33 &&
-                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-            ) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            val ask = buildList {
+                if (Build.VERSION.SDK_INT >= 33 && !granted(Manifest.permission.POST_NOTIFICATIONS)) add(Manifest.permission.POST_NOTIFICATIONS)
+                if (Build.VERSION.SDK_INT >= 31 && !granted(Manifest.permission.BLUETOOTH_CONNECT)) add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            if (ask.isNotEmpty()) startPermissions.launch(ask.toTypedArray())
             EngineService.start(this@MainActivity)
+        }
+
+        // Advanced: Android hands over playback capture through a media-projection grant. With the
+        // PROJECT_MEDIA app-op set by Shizuku, Android approves it without showing its prompt.
+        val projection = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+            if (r.resultCode == Activity.RESULT_OK && r.data != null) EngineService.startCapture(this@MainActivity, r.resultCode, r.data!!)
+            else RadaEngine.onCaptureChanged(false, emptyList(), "Audio capture was not allowed, so Advanced is waiting. Turn it off and on to try again.")
+        }
+        val recordPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+            if (ok) projection.launch((getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).createScreenCaptureIntent())
+            else RadaEngine.onCaptureChanged(false, emptyList(), "Advanced needs the record permission to receive other apps' sound.")
+        }
+        var asked by remember { mutableStateOf(false) }
+        LaunchedEffect(status.advanced, status.capture, status.running) {
+            when {
+                status.advanced && !status.capture && status.running && !asked -> {
+                    asked = true
+                    if (Build.VERSION.SDK_INT < 29) RadaEngine.onCaptureChanged(false, emptyList(), "Advanced needs Android 10 or later.")
+                    else if (!granted(Manifest.permission.RECORD_AUDIO)) recordPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    else projection.launch((getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).createScreenCaptureIntent())
+                }
+                !status.advanced -> { asked = false; if (status.capture) EngineService.stopCapture(this@MainActivity) }
+            }
         }
         // Coming back from Shizuku: re-check its state.
         val owner = LocalLifecycleOwner.current
@@ -139,7 +175,7 @@ class MainActivity : ComponentActivity() {
             val sideNav = columns == 3
 
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                TopBar(status.running, wide = columns > 1, onInfo = { sheet = SheetKind.Engine }) { on ->
+                TopBar(status.running, wide = columns > 1, compact = maxWidth < 380.dp, onInfo = { sheet = SheetKind.Engine }) { on ->
                     if (on) EngineService.start(this@MainActivity) else EngineService.stop(this@MainActivity)
                 }
                 Row(Modifier.weight(1f)) {
@@ -147,7 +183,9 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.weight(1f).fillMaxHeight()) {
                         val setup = { sheet = SheetKind.Advanced }
                         when (tab) {
-                            0 -> HomeScreen(columns, settings, status, onEngine, onApps = { sheet = SheetKind.Apps }, openEq = { tab = 1 })
+                            0 -> HomeScreen(columns, settings, status, onEngine, onApps = { sheet = SheetKind.Apps }, openEq = { tab = 1 },
+                                onEngineTap = { sheet = if (status.capture) SheetKind.Apps else SheetKind.Advanced },
+                                onReachTap = { sheet = SheetKind.Engine })
                             1 -> EqScreen(columns, settings)
                             2 -> SpaceScreen(columns, settings, status, setup)
                             3 -> DevicesScreen(columns, settings, status)
@@ -170,32 +208,47 @@ class MainActivity : ComponentActivity() {
 
     /** The Rada wordmark: RADA in Figtree Black, closed with the red dot. Product named alongside. */
     @Composable
-    private fun Wordmark() {
+    private fun Wordmark(showProduct: Boolean = true) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.semantics { contentDescription = "Rada Audio" }) {
             Row(verticalAlignment = Alignment.Top) {
                 Text("RADA", fontSize = 27.sp, fontWeight = FontWeight.Black, color = Pal.black, letterSpacing = (-1.2).sp, lineHeight = 27.sp)
                 Box(Modifier.padding(top = 15.dp, start = 1.5.dp).size(5.dp).clip(CircleShape).background(Red))
             }
-            Spacer(Modifier.width(10.dp))
-            Text("AUDIO", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, color = Pal.muted2,
+            if (showProduct) Spacer(Modifier.width(10.dp))
+            if (showProduct) Text("AUDIO", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, color = Pal.muted2,
                 modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, Pal.line, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 5.dp))
         }
     }
 
     @Composable
-    private fun TopBar(on: Boolean, wide: Boolean, onInfo: () -> Unit, onPower: (Boolean) -> Unit) {
+    private fun TopBar(on: Boolean, wide: Boolean, compact: Boolean, onInfo: () -> Unit, onPower: (Boolean) -> Unit) {
+        val dark = Pal.dark
         Row(
             Modifier.fillMaxWidth().padding(horizontal = if (wide) 28.dp else 20.dp).padding(top = 14.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Wordmark()
+            Wordmark(showProduct = !compact)
             Spacer(Modifier.weight(1f))
             Box(
                 Modifier.size(42.dp).clip(CircleShape).background(Pal.card).border(1.dp, Pal.line, CircleShape).clickable { onInfo() }
                     .semantics { contentDescription = "Engine details" },
                 contentAlignment = Alignment.Center,
             ) { StrokeIcon(TabIcons.ABOUT, Pal.black, 18.dp) }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
+            // Light or dark, next to the power switch
+            Box(
+                Modifier.size(42.dp).clip(CircleShape).background(Pal.card).border(1.dp, Pal.line, CircleShape)
+                    .clickable { ThemePrefs.set(applicationContext, if (dark) ThemeMode.Light else ThemeMode.Dark) }
+                    .semantics { contentDescription = if (dark) "Switch to light mode" else "Switch to dark mode" },
+                contentAlignment = Alignment.Center,
+            ) {
+                StrokeIcon(
+                    if (dark) "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+                    else "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z",
+                    Pal.black, 18.dp,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
             Row(
                 Modifier.height(42.dp).clip(RoundedCornerShape(50))
                     .background(if (on) Pal.pri else Pal.card)
