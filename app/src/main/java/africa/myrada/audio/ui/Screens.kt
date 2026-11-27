@@ -140,7 +140,8 @@ fun HomeScreen(columns: Int, s: Settings, st: RadaEngine.Status, onEngine: (Stri
             GhostButton("Open equaliser", Modifier.padding(top = 10.dp)) { openEq() }
         }
     }
-    val cells = if (columns >= 3) listOf(hero, engine, quick, sig, eqPreview) else listOf(hero, engine, sig, quick)
+    val saved = Cell { ProfilesPanel(s, st, compact = true) }
+    val cells = if (columns >= 3) listOf(hero, engine, quick, sig, saved, eqPreview) else listOf(hero, engine, sig, saved, quick)
     Page(columns, "RADA Sense", "Your sound", cells)
 }
 
@@ -267,10 +268,11 @@ fun DevicesScreen(columns: Int, s: Settings, st: RadaEngine.Status) {
                     Text(if (playing) "Playing" else "Saved", color = if (playing) RadaColors.Copper else RadaColors.Muted, fontSize = 12.sp)
                 }
             }
-            Note("Connect headphones or a DAC and RADA switches by itself. Each output keeps its own sound.")
+            Note("Connect headphones or a DAC and RADA switches by itself. Each output remembers its last sound; saved profiles are the ones you keep.")
         }
     }
-    Page(columns, "RADA Sense", "Devices", listOf(hero, noise, correction, outputs))
+    val library = Cell(full = true) { ProfilesPanel(s, st) }
+    Page(columns, "RADA Sense", "Devices", listOf(hero, noise, correction, library, outputs))
 }
 
 @Composable
@@ -304,12 +306,12 @@ fun StudioScreen(columns: Int, s: Settings, st: RadaEngine.Status, version: Stri
         Triple("Loudness levelling", "Even volume between songs and apps", s.levelling) to { RadaEngine.update { it.copy(levelling = !it.levelling) } },
     )) }
     val profiles = Cell(full = columns > 1) {
-        Panel(title = "Profiles") {
+        Panel(title = "This output") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhostButton("Copy profile") { onCopy() }
+                GhostButton("Copy settings") { onCopy() }
                 GhostButton("Reset this output") { RadaEngine.resetOutput() }
             }
-            Note("Profiles hold settings only. RADA never records or uploads audio. RADA audio $version")
+            Note("Save named profiles on the Home or Devices tab. Profiles hold settings only; RADA never records or uploads audio. RADA audio $version")
         }
     }
     Page(columns, "Studio", "Processing", listOf(dyn, ears, adv, profiles))
