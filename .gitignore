@@ -6,3 +6,7 @@ local.properties
 .DS_Store
 captures/
 .cxx/
+*.apk
+/out/
+__pycache__/
+*.pyc

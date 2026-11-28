@@ -348,13 +348,13 @@ fun DevicesScreen(columns: Int, s: Settings, st: RadaEngine.Status) {
             if (o.bluetooth) Spec(IC_BT, "Bluetooth") else Spec(IC_WIRE, when (artKind(o)) { "dac" -> "USB"; "spk" -> "Built in"; else -> "Wired" })
             Spec(IC_ENGINE, s.preset)
         }) {
-            Note(if (o.bluetooth) "Battery and codec appear here for models with a tested adapter." else "Direct route: no Bluetooth encoding or hardware controls.")
+            Note(if (o.bluetooth) "Battery and codec readouts are not built yet." else "Direct route: no Bluetooth encoding or hardware controls.")
         }
     }
     val noise: @Composable (Modifier) -> Unit = { m ->
         Panel(m, title = "Noise control", trailing = { Tag("Manual") }) {
             Segmented(listOf("Off", "ANC", "Transparency"), s.noise) { n -> RadaEngine.update { it.copy(noise = n) } }
-            Note("No tested adapter for this model yet, so this picks the preset for the mode your headphones are in.")
+            Note("Tell Rada which mode your headphones are in. It does not switch your headphones yet; set the mode on the headphones or their own app.")
         }
     }
     val correction: @Composable (Modifier) -> Unit = { m ->

@@ -265,7 +265,7 @@ fun CompareButton(held: Boolean, onHold: (Boolean) -> Unit) {
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(if (held) Pal.powder else Red))
         Spacer(Modifier.width(10.dp))
-        Text(if (held) "Original sound (level-matched)" else "Hold to compare with original",
+        Text(if (held) "Original sound" else "Hold to compare with original",
             color = if (held) Pal.black else Pal.onPri, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
