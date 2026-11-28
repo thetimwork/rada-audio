@@ -69,6 +69,9 @@ import africa.myrada.audio.ui.EqScreen
 import africa.myrada.audio.ui.HomeScreen
 import africa.myrada.audio.ui.Pal
 import africa.myrada.audio.ui.RadaSheet
+import africa.myrada.audio.ui.NewDeviceSheet
+import africa.myrada.audio.ui.DeviceEditor
+import africa.myrada.audio.engine.DeviceTypes
 import africa.myrada.audio.ui.RadaTheme
 import africa.myrada.audio.ui.Red
 import africa.myrada.audio.ui.SheetKind
@@ -199,6 +202,17 @@ class MainActivity : ComponentActivity() {
             }
         }
         sheet?.let { RadaSheet(it, status, shizuku) { sheet = null } }
+
+        // New device card: once for a Bluetooth device Rada doesn't know yet, or from the Change link.
+        val out = status.output
+        var dismissed by remember { mutableStateOf(setOf<String>()) }
+        LaunchedEffect(out.id) { dismissed = dismissed.filter { it == out.id }.toSet() }
+        val id = out.id
+        if (id != null && ((!out.known && id !in dismissed) || DeviceEditor.open)) {
+            NewDeviceSheet(out, edit = DeviceEditor.open && out.known,
+                onSave = { n, k -> DeviceTypes.save(this@MainActivity, id, n, k); DeviceEditor.open = false; refreshOutput() },
+                onDismiss = { if (!out.known) dismissed = dismissed + id; DeviceEditor.open = false })
+        }
     }
 
     private fun copyProfile() {

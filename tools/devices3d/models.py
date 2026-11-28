@@ -1,5 +1,5 @@
 import bpy, math, sys
-sys.path.insert(0, '/home/claude/rada3d')
+import os; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scene import *
 
 PLAT = lambda: mat('plat', srgb('#B9B4AB'), metal=0.55, rough=0.32)
@@ -77,7 +77,47 @@ def phone():
     root.rotation_euler = (math.radians(-12), 0, 0)
     return root, -8.4, (40, 2, 56)
 
-MODELS = {'head': headphones, 'bud': earbuds, 'dac': dac, 'spk': phone}
+def fabric(hexc):
+    m = mat('fabric', srgb(hexc), rough=0.92)
+    nt = m.node_tree; b = nt.nodes['Principled BSDF']
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    n = nt.nodes.new('ShaderNodeTexNoise'); n.inputs['Scale'].default_value = 45; n.inputs['Detail'].default_value = 2
+    w = nt.nodes.new('ShaderNodeTexWave'); w.inputs['Scale'].default_value = 22; w.inputs['Distortion'].default_value = 1.5
+    mx = nt.nodes.new('ShaderNodeMath'); mx.operation = 'ADD'
+    bp = nt.nodes.new('ShaderNodeBump'); bp.inputs['Strength'].default_value = 0.7; bp.inputs['Distance'].default_value = 0.02
+    nt.links.new(tc.outputs['Object'], n.inputs['Vector']); nt.links.new(tc.outputs['Object'], w.inputs['Vector'])
+    nt.links.new(n.outputs['Fac'], mx.inputs[0]); nt.links.new(w.outputs['Fac'], mx.inputs[1])
+    nt.links.new(mx.outputs[0], bp.inputs['Height']); nt.links.new(bp.outputs['Normal'], b.inputs['Normal'])
+    return m
+
+def speaker():
+    """Portable Bluetooth speaker: fabric capsule lying on its side, rubber end caps with passive radiators."""
+    root = pivot(); plat, dark, led, steel = PLAT(), DARK(), LED(), STEEL()
+    cloth = fabric('#9C978F'); rub = mat('rubber', srgb('#2A2927'), rough=0.75)
+    L, R = 13.0, 3.4
+    bpy.ops.mesh.primitive_cylinder_add(vertices=96, radius=R, depth=L, rotation=(0, math.radians(90), 0))
+    body = bpy.context.object; add(body, cloth, root); smooth(body)
+    for sx in (-1, 1):
+        bpy.ops.mesh.primitive_cylinder_add(vertices=96, radius=R + 0.18, depth=1.3, location=(sx * (L / 2 + 0.45), 0, 0), rotation=(0, math.radians(90), 0))
+        c = bpy.context.object; add(c, rub, root); smooth(c, bevel=0.5, seg=8)
+        bpy.ops.mesh.primitive_torus_add(major_radius=2.25, minor_radius=0.16, major_segments=96, minor_segments=16, location=(sx * (L / 2 + 1.12), 0, 0), rotation=(0, math.radians(90), 0))
+        add(bpy.context.object, steel, root)
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, radius=2.1, location=(sx * (L / 2 + 1.0), 0, 0))
+        d = bpy.context.object; d.scale = (0.12, 1, 1); add(d, dark, root); smooth(d)
+        bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=0.75, depth=0.1, location=(sx * (L / 2 + 1.27), 0, 0), rotation=(0, math.radians(90), 0))
+        add(bpy.context.object, plat, root)
+    # control strip on top
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, R - 0.12)); st = bpy.context.object; st.scale = (5.6, 1.1, 0.4); add(st, rub, root); smooth(st, bevel=0.18, seg=6)
+    for x in (-1.8, -0.6, 0.6, 1.8):
+        bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.32, depth=0.12, location=(x, 0, R + 0.1)); add(bpy.context.object, plat, root)
+    # front badge
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, -R + 0.02, -0.3)); bg = bpy.context.object; bg.scale = (2.2, 0.12, 0.42); add(bg, plat, root); smooth(bg, bevel=0.1, seg=4)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.12, location=(1.35, -R - 0.02, -0.3)); add(bpy.context.object, led, root)
+    # foot
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, -R + 0.05)); f = bpy.context.object; f.scale = (8.0, 1.6, 0.3); add(f, rub, root); smooth(f, bevel=0.12, seg=4)
+    return root, -R, (30, 2, 56)
+
+MODELS = {'head': headphones, 'bud': earbuds, 'dac': dac, 'spk': speaker, 'phone': phone}
 
 def build(kind):
     reset(); lights()

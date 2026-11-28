@@ -36,7 +36,7 @@ import africa.myrada.audio.engine.Settings
 fun defaultType(o: OutputInfo): String = when (artKind(o)) {
     "bud" -> "Earphones"
     "dac" -> "USB DAC"
-    "spk" -> "Speaker"
+    "spk", "phone" -> "Speaker"
     else -> "Headphones"
 }
 

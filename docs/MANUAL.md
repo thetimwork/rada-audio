@@ -59,7 +59,9 @@ Six tabs sit at the bottom on phones, or down the left side on tablets: **Home, 
 
 <img src="screens/phone-home-light.png" width="300" alt="Home, light"> <img src="screens/phone-home-dark.png" width="300" alt="Home, dark">
 
-**Device card.** The output Rada is tuning for, shown as a 3D model that turns slowly. Drag it sideways to turn it yourself. It shows headphones, earphones, a USB DAC or the phone speaker, depending on what is connected.
+**Device card.** The output Rada is tuning for, shown as a 3D picture: a speaker, headphones, earbuds, a USB DAC or the phone. When a device connects the picture makes one slow quarter-turn, then rests and leans a little as you tilt the phone. With Android's animations switched off it stays still. For a Bluetooth device, **Change** next to the name lets you edit its name and type.
+
+**New device card.** The first time a Bluetooth device connects, Rada asks once what it is: the name (filled in from Bluetooth, edit it if you like) and the type, Speaker, Headphones or Earbuds. Rada suggests a type from what the device reports about itself; check it and tap **Save device**. Rada remembers it from then on. If you close the card without saving, Rada uses its suggestion for now and asks again next time.
 
 - **Standard / Advanced chip**: the engine in use. Tap it to set up Advanced mode, or, once Advanced runs, to see which apps it is processing.
 - **EQ: all apps chip**: how far the equaliser reaches. Tap it for Engine details.
@@ -126,6 +128,8 @@ Six tabs sit at the bottom on phones, or down the left side on tablets: **Home, 
 **Advanced effects** (needs Advanced mode):
 
 - **Crossfeed**: lets each ear hear a little of the other channel, as with speakers, so hard-panned sounds stop sitting inside one ear.
+
+Crossfeed and Virtual surround are for headphones. While you play through a speaker, including the phone speaker, they are switched off and say **Headphones only**.
 - **True mono**: left and right in both ears. Until Advanced is set up, Android's own **Mono audio** is in Settings › Accessibility.
 - **HRTF spatial**: marked **Not built yet**.
 
@@ -243,6 +247,8 @@ Cards in a row always share the same height.
 **Virtual surround does nothing.** In Standard mode it is Android's virtualiser, and some phones ignore it; the line under the switch tells you. Advanced mode uses Rada's own.
 
 **The EQ chip says "EQ: some apps".** Your phone refused the system-wide effect. The EQ then reaches only apps that share their audio. Advanced mode reaches every app that allows capture.
+
+**Rada shows the wrong type for my device.** Tap **Change** on the device card and pick Speaker, Headphones or Earbuds.
 
 **My headphones show a generic name.** Allow **Nearby devices** for Rada in Android's app settings, then reconnect the headphones.
 

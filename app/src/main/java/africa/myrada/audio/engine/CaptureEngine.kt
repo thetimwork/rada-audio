@@ -135,8 +135,10 @@ class CaptureEngine(private val ctx: Context, private val projection: MediaProje
 
     private fun process(buf: FloatArray, frames: Int, s: Settings) {
         if (s.levelling) leveller.process(buf, frames)
-        if (s.crossfeed) crossfeed.process(buf, frames)
-        if (s.virtualizer) surround.process(buf, frames)
+        // Crossfeed and speaker simulation are headphone effects: off when the output is a speaker.
+        val onHeadphones = !DeviceTypes.isSpeaker(RadaEngine.status.value.output.kind)
+        if (s.crossfeed && onHeadphones) crossfeed.process(buf, frames)
+        if (s.virtualizer && onHeadphones) surround.process(buf, frames)
         if (s.reverb) {
             val key = "${s.room}:${s.roomSize}"
             if (key != roomKey) { roomKey = key; configureRoom(s) }

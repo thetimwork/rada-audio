@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import africa.myrada.audio.engine.DeviceTypes
 import africa.myrada.audio.engine.OutputInfo
 import africa.myrada.audio.engine.Presets
 import africa.myrada.audio.engine.RadaEngine
@@ -83,12 +84,8 @@ fun androidx.compose.foundation.layout.RowScope.Stack(weight: Float = 1f, conten
     Column(Modifier.weight(weight).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(RowGap), content = content)
 }
 
-fun artKind(o: OutputInfo): String = when {
-    o.mode == "Phone speaker" -> "spk"
-    o.mode == "USB Hi-Fi" -> "dac"
-    Regex("bud|wf-|pods|ear", RegexOption.IGNORE_CASE).containsMatchIn(o.name) -> "bud"
-    else -> "head"
-}
+/** Which picture and which effects: "spk", "head", "bud", "dac" or "phone" (worked out in DeviceTypes). */
+fun artKind(o: OutputInfo): String = o.kind
 
 private fun db(v: Float) = (if (v > 0) "+" else "") + (if (v % 1f == 0f) v.roundToInt().toString() else "%.1f".format(v)) + " dB"
 
@@ -133,9 +130,14 @@ private fun DeviceHero(modifier: Modifier, eyebrow: String, tag: String, o: Outp
             Eyebrow(eyebrow, Pal.muted, Modifier.weight(1f)); Tag(tag)
         }
         Spacer(Modifier.weight(1f, fill = false).height(4.dp))
-        DeviceSpin(artKind(o), o.name, Modifier.padding(top = 6.dp))
-        Text(o.name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Pal.black, letterSpacing = (-1).sp, lineHeight = 30.sp,
-            modifier = Modifier.padding(top = 6.dp))
+        DeviceSpin(artKind(o), o.name, Modifier.padding(top = 6.dp), id = o.id ?: o.key)
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.Bottom) {
+            Text(o.name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Pal.black, letterSpacing = (-1).sp, lineHeight = 30.sp,
+                modifier = Modifier.weight(1f))
+            if (o.id != null) Text("Change", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Pal.black,
+                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                modifier = Modifier.padding(start = 12.dp, bottom = 4.dp).clickable { DeviceEditor.open = true })
+        }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) { specs() }
         footer()
     }
@@ -265,6 +267,7 @@ fun EqScreen(columns: Int, s: Settings) {
 
 @Composable
 fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () -> Unit) {
+    val onSpeaker = DeviceTypes.isSpeaker(st.output.kind)
     val room: @Composable (Modifier) -> Unit = { m ->
         AlwaysLight {
             val reach = when {
@@ -296,7 +299,8 @@ fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () ->
             SettingRow("Virtual surround",
                 if (st.capture) "Rada speaker simulation: two speakers in front of you, in your headphones"
                 else when (st.virtualizerAccepted) { true -> "Android's virtualiser, accepted by this phone"; false -> "This phone ignored Android's virtualiser"; null -> "Android's virtualiser in Standard; Rada's own in Advanced" },
-                s.virtualizer, tag = if (st.capture) "Advanced" else "Varies by phone", tagKind = if (st.capture) TagKind.Advanced else TagKind.Limit) { RadaEngine.update { it.copy(virtualizer = !it.virtualizer) } }
+                s.virtualizer, tag = if (st.capture) "Advanced" else "Varies by phone", tagKind = if (st.capture) TagKind.Advanced else TagKind.Limit,
+                locked = onSpeaker, lockedText = HEADPHONES_ONLY) { RadaEngine.update { it.copy(virtualizer = !it.virtualizer) } }
             SliderRow("Stereo width", s.width, 0f..100f, "${s.width.roundToInt()}%") { v -> RadaEngine.update { it.copy(width = v.roundToInt().toFloat()) } }
             Note("Subtle in Standard mode: Android lets Rada lean frequencies left and right, not mix channels.")
         }
@@ -306,7 +310,8 @@ fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () ->
             Triple("HRTF spatial", "Needs measured head-response data, not in this build", s.spatial) to { RadaEngine.update { it.copy(spatial = !it.spatial) } },
             Triple("Crossfeed", "Speaker-like stereo on headphones", s.crossfeed) to { RadaEngine.update { it.copy(crossfeed = !it.crossfeed) } },
             Triple("True mono", "Left and right in both ears", s.mono) to { RadaEngine.update { it.copy(mono = !it.mono) } },
-        ), footer = if (st.advanced) null else "Until then, Android's own Mono audio is in Settings › Accessibility.")
+        ), footer = if (st.advanced) null else "Until then, Android's own Mono audio is in Settings › Accessibility.",
+            speakerOff = if (onSpeaker) setOf("Crossfeed") else emptySet())
     }
     Page(columns, "Immersive", "Sound space") {
         when (columns) {
@@ -317,16 +322,21 @@ fun SpaceScreen(columns: Int, s: Settings, st: RadaEngine.Status, onSetup: () ->
     }
 }
 
+/** Shown on headphone-only effects while the output is a speaker. */
+private const val HEADPHONES_ONLY = "Headphones only. Off while playing on a speaker."
+
 /** Effects Rada has not built yet; shown so nothing pretends to work. */
 private val NOT_BUILT = setOf("HRTF spatial", "Convolution")
 
 @Composable
-fun AdvancedPanel(modifier: Modifier, title: String, st: RadaEngine.Status, onSetup: () -> Unit, rows: List<Pair<Triple<String, String, Boolean>, () -> Unit>>, footer: String? = null) {
+fun AdvancedPanel(modifier: Modifier, title: String, st: RadaEngine.Status, onSetup: () -> Unit, rows: List<Pair<Triple<String, String, Boolean>, () -> Unit>>, footer: String? = null,
+                  speakerOff: Set<String> = emptySet()) {
     val advanced = st.advanced
     Panel(modifier, title = title, trailing = { Tag("Shizuku", TagKind.Advanced) }, contrast = true) {
         rows.forEachIndexed { i, (t, toggle) ->
             if (i > 0) Divider()
             if (t.first in NOT_BUILT) SettingRow(t.first, t.second, false, tag = "Not built yet", locked = true, lockedText = t.second) {}
+            else if (t.first in speakerOff) SettingRow(t.first, t.second, t.third, locked = true, lockedText = HEADPHONES_ONLY) {}
             else SettingRow(t.first, t.second, t.third, locked = !advanced) { if (advanced) toggle() else onSetup() }
         }
         when {
@@ -345,7 +355,7 @@ fun DevicesScreen(columns: Int, s: Settings, st: RadaEngine.Status) {
     val o = st.output
     val hero: @Composable (Modifier) -> Unit = { m ->
         DeviceHero(m, if (st.running) "Connected" else "Engine off", o.mode, o, specs = {
-            if (o.bluetooth) Spec(IC_BT, "Bluetooth") else Spec(IC_WIRE, when (artKind(o)) { "dac" -> "USB"; "spk" -> "Built in"; else -> "Wired" })
+            if (o.bluetooth) Spec(IC_BT, "Bluetooth") else Spec(IC_WIRE, when (artKind(o)) { "dac" -> "USB"; "phone" -> "Built in"; else -> "Wired" })
             Spec(IC_ENGINE, s.preset)
         }) {
             Note(if (o.bluetooth) "Battery and codec readouts are not built yet." else "Direct route: no Bluetooth encoding or hardware controls.")

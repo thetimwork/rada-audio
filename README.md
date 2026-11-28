@@ -41,12 +41,13 @@ app/src/main/java/africa/myrada/audio/
     CaptureEngine.kt       Advanced engine: finds playing apps, probes capture, processes, mutes originals
     dsp/                   Freeverb rooms, speaker simulation, crossfeed, mono, warmth, levelling
     Outputs.kt             which output is active, Bluetooth names
+    DeviceTypes.kt         speaker, headphones or earbuds: saved choice or suggestion
     ShizukuBridge.kt       Shizuku permission and the one-time grants
     Settings.kt            settings model and signatures
-  ui/                      Compose screens, components, theme, 3D device turntable
-app/src/main/assets/devices/   rendered 3D device frames (48 per device)
+  ui/                      Compose screens, components, theme, device picture and New device card
+app/src/main/assets/devices/   rendered device stills and quarter-turns
 docs/                      manual and screenshots
-tools/devices3d/           Blender scripts that render the device turntables
+tools/devices3d/           Blender scripts that render the device pictures
 licenses/                  third-party licences (Figtree font)
 ```
 

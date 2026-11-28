@@ -2,6 +2,14 @@
 
 Alpha builds are published under Releases as `alpha-N`, where N is the build number.
 
+## alpha-10
+- New device card: the first time a Bluetooth device connects, Rada asks once for its name (filled in from Bluetooth) and type (Speaker, Headphones or Earbuds), then remembers it. The type comes pre-selected from what the device reports when it pairs. Change on the device card edits it later. Closing the card without saving uses the suggestion for now and asks again next time.
+- Speakers no longer show as headphones: the type picks the picture and the effects.
+- Device pictures: one sharp still per device that makes a single quarter-turn when the device connects, then rests and leans a few degrees as you tilt the phone. Replaces the 360° turntable, which juddered. Still only when the phone's animations are off.
+- New speaker model for speakers; the phone picture is now only for the phone's own speaker.
+- Crossfeed and virtual surround are headphone effects, so they switch off on speakers, including the phone speaker.
+- Smaller app: 1.7 MB of device pictures instead of 3.1 MB.
+
 ## alpha-9
 - Wording that promised unbuilt features corrected: noise control, battery and codec note, and the compare button (it switches effects off; it does not match loudness).
 - Manual and screenshots in `docs/`, new README, changelog, signing-key note; unused logo image removed.

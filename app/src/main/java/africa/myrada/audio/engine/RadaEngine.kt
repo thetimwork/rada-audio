@@ -309,7 +309,7 @@ object RadaEngine {
     }
 
     private fun applyVirtualizer(s: Settings, active: Boolean) {
-        val want = active && s.virtualizer && !_status.value.capture
+        val want = active && s.virtualizer && !_status.value.capture && !DeviceTypes.isSpeaker(_status.value.output.kind)
         if (!want) {
             virtualizer?.release(); virtualizer = null
             if (_status.value.capture) _status.value = _status.value.copy(virtualizerAccepted = null)

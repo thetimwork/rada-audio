@@ -97,7 +97,7 @@ fun DeviceArt(kind: String, modifier: Modifier = Modifier) {
     val k = ArtInk(Pal.art1, Pal.art2, Pal.art3, Pal.artSh, Pal.muted, Pal.bg)
     Canvas(modifier.fillMaxWidth().height(196.dp)) {
         design(320f, 210f) {
-            when (kind) { "bud" -> earbuds(k); "dac" -> dac(k); "spk" -> phone(k); else -> headphones(k) }
+            when (kind) { "bud" -> earbuds(k); "dac" -> dac(k); "phone" -> phone(k); else -> headphones(k) }
         }
     }
 }
