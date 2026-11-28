@@ -2,6 +2,10 @@
 
 Alpha builds are published under Releases as `alpha-N`, where N is the build number.
 
+## alpha-11
+- Device card redesigned: the device sits on its own stage at the top of the card, with its type and connection labelled on it; name, Change, engine and EQ chips and the compare button below.
+- New motion for the device picture: it leans further and reacts to small tilts of the phone, smoothed so it doesn't shake, overshoots a touch and settles back straight. It floats gently when the phone is still. Tap it and it hops. The quarter-turn on connect lands with a small wobble. All motion off when the phone's animations are off.
+
 ## alpha-10
 - New device card: the first time a Bluetooth device connects, Rada asks once for its name (filled in from Bluetooth) and type (Speaker, Headphones or Earbuds), then remembers it. The type comes pre-selected from what the device reports when it pairs. Change on the device card edits it later. Closing the card without saving uses the suggestion for now and asks again next time.
 - Speakers no longer show as headphones: the type picks the picture and the effects.

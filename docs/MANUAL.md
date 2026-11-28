@@ -59,7 +59,7 @@ Six tabs sit at the bottom on phones, or down the left side on tablets: **Home, 
 
 <img src="screens/phone-home-light.png" width="300" alt="Home, light"> <img src="screens/phone-home-dark.png" width="300" alt="Home, dark">
 
-**Device card.** The output Rada is tuning for, shown as a 3D picture: a speaker, headphones, earbuds, a USB DAC or the phone. When a device connects the picture makes one slow quarter-turn, then rests and leans a little as you tilt the phone. With Android's animations switched off it stays still. For a Bluetooth device, **Change** next to the name lets you edit its name and type.
+**Device card.** The output Rada is tuning for, shown as a 3D picture: a speaker, headphones, earbuds, a USB DAC or the phone. When a device connects the picture makes one slow quarter-turn. After that it leans as you tilt the phone and floats gently when you hold still. Tap it and it hops. With Android's animations switched off it stays still. For a Bluetooth device, **Change** next to the name lets you edit its name and type.
 
 **New device card.** The first time a Bluetooth device connects, Rada asks once what it is: the name (filled in from Bluetooth, edit it if you like) and the type, Speaker, Headphones or Earbuds. Rada suggests a type from what the device reports about itself; check it and tap **Save device**. Rada remembers it from then on. If you close the card without saving, Rada uses its suggestion for now and asks again next time.
 

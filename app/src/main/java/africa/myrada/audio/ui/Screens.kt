@@ -123,23 +123,39 @@ const val IC_WIRE = "M12 3v8M8 11h8v4a4 4 0 0 1-8 0zM12 19v2"
 const val IC_ARROW = "M5 12h14M13 6l6 6-6 6"
 
 /** The device card: black in light mode, warm white in dark. */
+/** Label for the type pill on the device stage. */
+private fun typeLabel(o: OutputInfo) = when (o.kind) {
+    "spk" -> "Speaker"; "bud" -> "Earbuds"; "dac" -> "USB DAC"; "phone" -> "This phone"; else -> "Headphones"
+}
+
 @Composable
 private fun DeviceHero(modifier: Modifier, eyebrow: String, tag: String, o: OutputInfo, specs: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit, footer: @Composable ColumnScope.() -> Unit) {
-    Panel(modifier, contrast = true) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Eyebrow(eyebrow, Pal.muted, Modifier.weight(1f)); Tag(tag)
+    // The contrast card: black in light mode, warm white in dark mode. The device gets its own stage on top.
+    Inverse {
+        val shape = RoundedCornerShape(CardRadius)
+        Column(modifier.fillMaxWidth().clip(shape).background(Pal.bg).padding(10.dp)) {
+            DeviceStage(artKind(o), o.name, typeLabel(o), tag, o.id ?: o.key)
+            Column(Modifier.weight(1f).padding(start = 10.dp, end = 10.dp, top = 14.dp, bottom = 10.dp)) {
+                Eyebrow(eyebrow, Pal.muted)
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
+                    Text(o.name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Pal.black, letterSpacing = (-1).sp, lineHeight = 30.sp,
+                        modifier = Modifier.weight(1f))
+                    if (o.id != null) Text("Change", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Pal.black,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        modifier = Modifier.padding(start = 12.dp, bottom = 4.dp).clickable { DeviceEditor.open = true })
+                }
+                val sub = when {
+                    o.bluetooth && o.btName != null && o.btName != o.name -> "Bluetooth name: ${o.btName}"
+                    o.bluetooth -> "Bluetooth"
+                    o.kind == "phone" -> "Playing from the phone"
+                    o.kind == "dac" -> "USB"
+                    else -> "Wired"
+                }
+                Text(sub, fontSize = 13.sp, color = Pal.muted, modifier = Modifier.padding(top = 4.dp))
+                Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { specs() }
+                footer()
+            }
         }
-        Spacer(Modifier.weight(1f, fill = false).height(4.dp))
-        DeviceSpin(artKind(o), o.name, Modifier.padding(top = 6.dp), id = o.id ?: o.key)
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.Bottom) {
-            Text(o.name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Pal.black, letterSpacing = (-1).sp, lineHeight = 30.sp,
-                modifier = Modifier.weight(1f))
-            if (o.id != null) Text("Change", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Pal.black,
-                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
-                modifier = Modifier.padding(start = 12.dp, bottom = 4.dp).clickable { DeviceEditor.open = true })
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) { specs() }
-        footer()
     }
 }
 
